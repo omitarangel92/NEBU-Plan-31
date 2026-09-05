@@ -1,4 +1,131 @@
-// Base de datos exacta de los 30 días según la tabla oficial
+// ==========================================================================
+// FIREBASE AUTH (Modular v10)
+// ==========================================================================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  signOut,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA8oIEjox4y8vm7vsnwd0JQaixiw_6Chvs",
+  authDomain: "fitplan30-76a27.firebaseapp.com",
+  projectId: "fitplan30-76a27",
+  storageBucket: "fitplan30-76a27.firebasestorage.app",
+  messagingSenderId: "1005774749920",
+  appId: "1:1005774749920:web:cf088e83804d14fd51d085"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+let isRegisterMode = false;
+let appInitialized = false;
+
+const authSection = document.getElementById("authSection");
+const appSection = document.getElementById("appSection");
+const authForm = document.getElementById("authForm");
+const authEmailInput = document.getElementById("authEmail");
+const authPasswordInput = document.getElementById("authPassword");
+const authTitle = document.getElementById("authTitle");
+const authSubtitle = document.getElementById("authSubtitle");
+const btnAuthSubmit = document.getElementById("btnAuthSubmit");
+const btnToggleAuthMode = document.getElementById("btnToggleAuthMode");
+const btnLogout = document.getElementById("btnLogout");
+
+btnToggleAuthMode.addEventListener("click", () => {
+  isRegisterMode = !isRegisterMode;
+  authForm.reset();
+  if (isRegisterMode) {
+    authTitle.textContent = "Crear Cuenta";
+    authSubtitle.textContent = "Regístrate para acceder al plan nutricional";
+    btnAuthSubmit.textContent = "Registrarse";
+    btnToggleAuthMode.textContent = "¿Ya tienes cuenta? Inicia sesión aquí";
+  } else {
+    authTitle.textContent = "Iniciar Sesión";
+    authSubtitle.textContent = "Ingresa a tu plan de nutrición FitPlan 30";
+    btnAuthSubmit.textContent = "Iniciar Sesión";
+    btnToggleAuthMode.textContent = "¿No tienes cuenta? Regístrate aquí";
+  }
+});
+
+authForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = authEmailInput.value.trim();
+  const password = authPasswordInput.value.trim();
+
+  if (!email || !password) {
+    Swal.fire({ icon: "warning", title: "Campos incompletos", text: "Completa todos los campos.", confirmButtonColor: "#2ecc71" });
+    return;
+  }
+
+  Swal.fire({ title: "Procesando...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+  if (isRegisterMode) {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(userCredential.user);
+      await signOut(auth);
+      Swal.fire({ icon: "info", title: "¡Verifica tu correo!", text: "Te enviamos un enlace de confirmación.", confirmButtonColor: "#2ecc71" });
+      btnToggleAuthMode.click();
+    } catch (error) { handleAuthError(error); }
+  } else {
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      if (!userCredential.user.emailVerified) {
+        await signOut(auth);
+        Swal.fire({ icon: "warning", title: "Cuenta no verificada", text: "Confirma tu correo antes de ingresar.", confirmButtonColor: "#f39c12" });
+        return;
+      }
+      Swal.fire({ icon: "success", title: "¡Bienvenido!", timer: 1500, showConfirmButton: false });
+    } catch (error) { handleAuthError(error); }
+  }
+});
+
+function handleAuthError(error) {
+  let msg = "Ocurrió un error inesperado.";
+  switch (error.code) {
+    case "auth/email-already-in-use": msg = "El correo ya está registrado."; break;
+    case "auth/invalid-email": msg = "Correo con formato inválido."; break;
+    case "auth/weak-password": msg = "La contraseña debe tener al menos 6 caracteres."; break;
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential": msg = "Correo o contraseña incorrectos."; break;
+  }
+  Swal.fire({ icon: "error", title: "Error de Autenticación", text: msg, confirmButtonColor: "#e74c3c" });
+}
+
+onAuthStateChanged(auth, (user) => {
+  if (user && user.emailVerified) {
+    authSection.classList.add("d-none");
+    appSection.classList.remove("d-none");
+    if (!appInitialized) {
+      appInitialized = true;
+      requestAnimationFrame(() => initApp());
+    } else {
+      loadDay(currentDay);
+    }
+  } else {
+    appSection.classList.add("d-none");
+    authSection.classList.remove("d-none");
+  }
+});
+
+btnLogout.addEventListener("click", () => {
+  Swal.fire({
+    title: "¿Cerrar Sesión?", icon: "question", showCancelButton: true,
+    confirmButtonColor: "#2ecc71", cancelButtonColor: "#d33",
+    confirmButtonText: "Sí, salir", cancelButtonText: "Cancelar"
+  }).then((r) => { if (r.isConfirmed) signOut(auth); });
+});
+
+/* ==========================================================================
+   LÓGICA DEL PROYECTO (FitPlan 30)
+   ========================================================================== */
 const mealPlanData = [
   {
     day: 1,
@@ -2813,24 +2940,46 @@ const mealPlanData = [
 let currentDay = 1;
 let caloriesChartInstance = null;
 
-// Inicialización de la aplicación al cargar el DOM
+// Detectar el día actual según hora de Colombia (America/Bogota)
+function getColombiaDayOfMonth() {
+  try {
+    const fmt = new Intl.DateTimeFormat("es-CO", {
+      timeZone: "America/Bogota",
+      day: "numeric"
+    });
+    const day = parseInt(fmt.format(new Date()), 10);
+    if (isNaN(day)) return 1;
+    if (day < 1) return 1;
+    if (day > 30) return 30;
+    return day;
+  } catch (e) {
+    return 1;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
-  renderDaySelector();
-  loadDay(currentDay);
 });
 
-// Renderizar el selector horizontal de días
+function initApp() {
+  currentDay = getColombiaDayOfMonth();
+  renderDaySelector();
+  loadDay(currentDay);
+  setTimeout(() => {
+    const activeBtn = document.querySelector(".btn-day.active");
+    if (activeBtn) activeBtn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, 200);
+}
+
 function renderDaySelector() {
   const container = document.getElementById("daySelector");
   if (!container) return;
   container.innerHTML = "";
-
   mealPlanData.forEach((dayData) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `btn btn-day ${dayData.day === currentDay ? "active" : ""}`;
-    btn.innerHTML = `Día ${dayData.day}`;
+    btn.textContent = `Día ${dayData.day}`;
     btn.onclick = () => {
       currentDay = dayData.day;
       highlightSelectedDayButton();
@@ -2842,36 +2991,27 @@ function renderDaySelector() {
 
 function highlightSelectedDayButton() {
   const buttons = document.querySelectorAll(".btn-day");
-  buttons.forEach((btn, index) => {
-    if (index + 1 === currentDay) {
-      btn.classList.add("active");
-    } else {
-      btn.classList.remove("active");
-    }
+  buttons.forEach((btn) => {
+    const num = parseInt(btn.textContent.replace("Día ", ""), 10);
+    btn.classList.toggle("active", num === currentDay);
   });
 }
 
-// Cargar la información del día seleccionado
 function loadDay(dayNum) {
   const dayData = mealPlanData.find((d) => d.day === dayNum);
   if (!dayData) return;
-
   const titleEl = document.getElementById("selectedDayTitle");
-  if (titleEl) {
-    titleEl.textContent = `Comidas del Día ${dayNum}`;
-  }
-
+  if (titleEl) titleEl.textContent = `Comidas del Día ${dayNum}`;
   renderMealsAndIngredients(dayData.meals);
   updateMacrosAndProgress(dayData.meals);
+  updateConsumedCalories(dayData.meals); // ← recalcula gráfico según checks guardados
 }
 
-// Renderizar acordeón de comidas e integrar los ingredientes totales como un elemento más del acordeón
 function renderMealsAndIngredients(meals) {
   const accordion = document.getElementById("mealsAccordion");
   if (!accordion) return;
   accordion.innerHTML = "";
 
-  // 1. Renderizar cada comida como un ítem de acordeón
   meals.forEach((meal, index) => {
     const isExpanded = index === 0 ? "show" : "";
     const isCollapsedClass = index === 0 ? "" : "collapsed";
@@ -2894,64 +3034,42 @@ function renderMealsAndIngredients(meals) {
       <div id="collapse-${meal.id}" class="accordion-collapse collapse ${isExpanded}" aria-labelledby="heading-${meal.id}" data-bs-parent="#mealsAccordion">
         <div class="accordion-body">
           <div class="form-check mb-3">
-            <input class="form-check-input meal-checkbox" type="checkbox" id="check-${meal.id}" data-day="${currentDay}" onchange="saveCheckboxState()">
+            <input class="form-check-input meal-checkbox" type="checkbox" id="check-${meal.id}" data-day="${currentDay}">
             <label class="form-check-label fw-semibold text-success" for="check-${meal.id}">
               Marcar comida como consumida
             </label>
           </div>
-          
           <h6 class="fw-bold text-secondary mb-2"><i class="bi bi-basket me-1"></i> Ingredientes:</h6>
-          <ul class="mb-3 ps-3">
-            ${meal.ingredients.map(ing => `<li>${ing}</li>`).join("")}
-          </ul>
-
+          <ul class="mb-3 ps-3">${meal.ingredients.map(i => `<li>${i}</li>`).join("")}</ul>
           <h6 class="fw-bold text-secondary mb-2"><i class="bi bi-journal-text me-1"></i> Preparación:</h6>
           <p class="prep-box mb-3">${meal.prep}</p>
-
           <div class="table-responsive">
             <table class="table table-sm table-bordered table-nutrition mb-0">
-              <thead>
-                <tr>
-                  <th>Peso</th>
-                  <th>Calorías</th>
-                  <th>Proteínas</th>
-                  <th>Carbos</th>
-                  <th>Grasas</th>
-                  <th>Azúcares</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>${meal.macros.weight}g</td>
-                  <td>${meal.macros.calories} kcal</td>
-                  <td>${meal.macros.protein}g</td>
-                  <td>${meal.macros.carbs}g</td>
-                  <td>${meal.macros.fats}g</td>
-                  <td>${meal.macros.sugars}g</td>
-                </tr>
-              </tbody>
+              <thead><tr><th>Peso</th><th>Calorías</th><th>Proteínas</th><th>Carbos</th><th>Grasas</th><th>Azúcares</th></tr></thead>
+              <tbody><tr>
+                <td>${meal.macros.weight}g</td>
+                <td>${meal.macros.calories} kcal</td>
+                <td>${meal.macros.protein}g</td>
+                <td>${meal.macros.carbs}g</td>
+                <td>${meal.macros.fats}g</td>
+                <td>${meal.macros.sugars}g</td>
+              </tr></tbody>
             </table>
           </div>
         </div>
-      </div>
-    `;
+      </div>`;
     accordion.appendChild(item);
   });
 
-  // 2. Renderizar "Ingredientes Totales del Día" como un ítem de acordeón idéntico para que respete el modo nocturno y estilos
+  // Ingredientes Totales del Día (al final)
   const allIngredients = [];
-  meals.forEach(meal => {
-    meal.ingredients.forEach(ingredient => {
-      allIngredients.push(ingredient);
-    });
-  });
+  meals.forEach(m => m.ingredients.forEach(i => allIngredients.push(i)));
 
-  const itemId = "general-ingredients";
   const generalItem = document.createElement("div");
   generalItem.className = "accordion-item";
   generalItem.innerHTML = `
-    <h2 class="accordion-header" id="heading-${itemId}">
-      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${itemId}" aria-expanded="false" aria-controls="collapse-${itemId}">
+    <h2 class="accordion-header" id="heading-general-ingredients">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-general-ingredients" aria-expanded="false" aria-controls="collapse-general-ingredients">
         <div class="d-flex align-items-center w-100 justify-content-between pe-3">
           <div>
             <i class="bi bi-basket3-fill text-success me-2"></i>
@@ -2961,28 +3079,26 @@ function renderMealsAndIngredients(meals) {
         </div>
       </button>
     </h2>
-    <div id="collapse-${itemId}" class="accordion-collapse collapse" aria-labelledby="heading-${itemId}" data-bs-parent="#mealsAccordion">
+    <div id="collapse-general-ingredients" class="accordion-collapse collapse" aria-labelledby="heading-general-ingredients" data-bs-parent="#mealsAccordion">
       <div class="accordion-body">
         <ul class="mb-0 ps-3">
-          ${allIngredients.length > 0 ? allIngredients.map(ing => `<li class="py-1">${ing}</li>`).join("") : '<li class="text-muted">No hay ingredientes registrados.</li>'}
+          ${allIngredients.length ? allIngredients.map(i => `<li class="py-1">${i}</li>`).join("") : '<li class="text-muted">Sin ingredientes.</li>'}
         </ul>
       </div>
-    </div>
-  `;
+    </div>`;
   accordion.appendChild(generalItem);
+
+  // Enlazar checkboxes
+  document.querySelectorAll(".meal-checkbox").forEach(cb => {
+    cb.addEventListener("change", saveCheckboxState);
+  });
 
   loadCheckboxState();
 }
 
-// Calcular y actualizar los macronutrientes y gráfico de calorías
 function updateMacrosAndProgress(meals) {
-  let totalCal = 0;
-  let totalProt = 0;
-  let totalCarb = 0;
-  let totalFat = 0;
-  let totalSug = 0;
-
-  meals.forEach((m) => {
+  let totalCal = 0, totalProt = 0, totalCarb = 0, totalFat = 0, totalSug = 0;
+  meals.forEach(m => {
     totalCal += m.macros.calories;
     totalProt += m.macros.protein;
     totalCarb += m.macros.carbs;
@@ -2990,31 +3106,39 @@ function updateMacrosAndProgress(meals) {
     totalSug += m.macros.sugars;
   });
 
-  const elCal = document.getElementById("totalCalories");
-  const elProt = document.getElementById("totalProtein");
-  const elCarb = document.getElementById("totalCarbs");
-  const elFat = document.getElementById("totalFats");
-  const elSug = document.getElementById("totalSugars");
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set("totalCalories", `${totalCal} kcal`);
+  set("totalProtein", `${totalProt}g`);
+  set("totalCarbs", `${totalCarb}g`);
+  set("totalFats", `${totalFat}g`);
+  set("totalSugars", `${totalSug}g`);
 
-  if (elCal) elCal.textContent = `${totalCal} kcal`;
-  if (elProt) elProt.textContent = `${totalProt}g`;
-  if (elCarb) elCarb.textContent = `${totalCarb}g`;
-  if (elFat) elFat.textContent = `${totalFat}g`;
-  if (elSug) elSug.textContent = `${totalSug}g`;
-
-  updateCaloriesChart(totalCal);
   updateProgress();
 }
 
-// Configuración y actualización del gráfico circular con Chart.js
+// Calcula calorías SOLO de las comidas marcadas y actualiza el gráfico
+function updateConsumedCalories(meals) {
+  let consumed = 0;
+  meals.forEach(m => {
+    const cb = document.getElementById(`check-${m.id}`);
+    if (cb && cb.checked) consumed += m.macros.calories;
+  });
+  updateCaloriesChart(consumed);
+}
+
 function updateCaloriesChart(consumedCalories) {
   const targetCalories = 2000;
   const remaining = Math.max(0, targetCalories - consumedCalories);
   const canvasEl = document.getElementById("caloriesChart");
   if (!canvasEl) return;
-  
-  const ctx = canvasEl.getContext("2d");
 
+  // Si el canvas aún no tiene tamaño (contenedor oculto), reintentar
+  if (canvasEl.offsetParent === null || canvasEl.clientWidth === 0) {
+    setTimeout(() => updateCaloriesChart(consumedCalories), 150);
+    return;
+  }
+
+  const ctx = canvasEl.getContext("2d");
   if (caloriesChartInstance) {
     caloriesChartInstance.data.datasets[0].data = [consumedCalories, remaining];
     caloriesChartInstance.update();
@@ -3023,83 +3147,77 @@ function updateCaloriesChart(consumedCalories) {
       type: "doughnut",
       data: {
         labels: ["Consumidas", "Restantes"],
-        datasets: [
-          {
-            data: [consumedCalories, remaining],
-            backgroundColor: ["#2ecc71", "#e0e0e0"],
-            borderWidth: 0,
-          },
-        ],
+        datasets: [{
+          data: [consumedCalories, remaining],
+          backgroundColor: ["#2ecc71", "#e0e0e0"],
+          borderWidth: 0
+        }]
       },
       options: {
         responsive: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: true },
-        },
-        cutout: "75%",
-      },
+        maintainAspectRatio: true,
+        plugins: { legend: { display: false }, tooltip: { enabled: true } },
+        cutout: "75%"
+      }
     });
   }
 }
 
-// Control del estado de los checkboxes guardados en localStorage
 function saveCheckboxState() {
   const checkboxes = document.querySelectorAll(".meal-checkbox");
   const state = {};
-  checkboxes.forEach((cb) => {
-    state[cb.id] = cb.checked;
-  });
+  checkboxes.forEach(cb => { state[cb.id] = cb.checked; });
   localStorage.setItem(`fitplan_day_${currentDay}_state`, JSON.stringify(state));
   updateProgress();
+
+  // Recalcular calorías consumidas del día actual
+  const dayData = mealPlanData.find(d => d.day === currentDay);
+  if (dayData) updateConsumedCalories(dayData.meals);
 }
 
 function loadCheckboxState() {
   const saved = localStorage.getItem(`fitplan_day_${currentDay}_state`);
-  if (!saved) {
-    updateProgress();
-    return;
-  }
-  const state = JSON.parse(saved);
-  for (const id in state) {
-    const cb = document.getElementById(id);
-    if (cb) {
-      cb.checked = state[id];
+  if (saved) {
+    const state = JSON.parse(saved);
+    for (const id in state) {
+      const cb = document.getElementById(id);
+      if (cb) cb.checked = state[id];
     }
   }
   updateProgress();
 }
 
-function resetDayCheckboxes() {
+// Reiniciar marcas → vuelve el gráfico a 0
+window.resetDayCheckboxes = function () {
   localStorage.removeItem(`fitplan_day_${currentDay}_state`);
-  const checkboxes = document.querySelectorAll(".meal-checkbox");
-  checkboxes.forEach((cb) => (cb.checked = false));
+  document.querySelectorAll(".meal-checkbox").forEach(cb => cb.checked = false);
   updateProgress();
-}
+
+  const dayData = mealPlanData.find(d => d.day === currentDay);
+  if (dayData) updateConsumedCalories(dayData.meals);
+};
 
 function updateProgress() {
   const checkboxes = document.querySelectorAll(".meal-checkbox");
-  if (checkboxes.length === 0) return;
-
-  let checkedCount = 0;
-  checkboxes.forEach((cb) => {
-    if (cb.checked) checkedCount++;
-  });
-
-  const percentage = Math.round((checkedCount / checkboxes.length) * 100);
   const textEl = document.getElementById("progressText");
   const barEl = document.getElementById("progressBar");
-
-  if (textEl) textEl.textContent = `${percentage}%`;
-  if (barEl) barEl.style.width = `${percentage}%`;
+  if (checkboxes.length === 0) {
+    if (textEl) textEl.textContent = "0%";
+    if (barEl) barEl.style.width = "0%";
+    return;
+  }
+  let checked = 0;
+  checkboxes.forEach(cb => { if (cb.checked) checked++; });
+  const pct = Math.round((checked / checkboxes.length) * 100);
+  if (textEl) textEl.textContent = `${pct}%`;
+  if (barEl) barEl.style.width = `${pct}%`;
 }
 
-// Alternar entre modo oscuro y claro
+// Modo oscuro / claro
 function initThemeToggle() {
   const toggleBtn = document.getElementById("themeToggle");
   const themeIcon = document.getElementById("themeIcon");
   const htmlElement = document.documentElement;
-
   if (!toggleBtn) return;
 
   const savedTheme = localStorage.getItem("fitplan_theme") || "light";
@@ -3107,20 +3225,15 @@ function initThemeToggle() {
   updateThemeIcon(savedTheme, themeIcon);
 
   toggleBtn.addEventListener("click", () => {
-    const currentTheme = htmlElement.getAttribute("data-bs-theme");
-    const newTheme = currentTheme === "dark" ? "light" : "dark";
-
-    htmlElement.setAttribute("data-bs-theme", newTheme);
-    localStorage.setItem("fitplan_theme", newTheme);
-    updateThemeIcon(newTheme, themeIcon);
+    const current = htmlElement.getAttribute("data-bs-theme");
+    const next = current === "dark" ? "light" : "dark";
+    htmlElement.setAttribute("data-bs-theme", next);
+    localStorage.setItem("fitplan_theme", next);
+    updateThemeIcon(next, themeIcon);
   });
 }
 
 function updateThemeIcon(theme, iconElement) {
   if (!iconElement) return;
-  if (theme === "dark") {
-    iconElement.className = "bi bi-sun-fill text-warning";
-  } else {
-    iconElement.className = "bi bi-moon-stars-fill";
-  }
+  iconElement.className = theme === "dark" ? "bi bi-sun-fill text-warning" : "bi bi-moon-stars-fill";
 }
