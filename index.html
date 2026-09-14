@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NEBU Fit30</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- Sección de Autenticación -->
+    <div id="authSection" class="container mt-5" style="max-width: 450px;">
+        <div class="card shadow border-0 p-4">
+            <div class="text-center mb-4">
+                <i class="bi bi-heart-pulse-fill text-success fs-1"></i>
+                <h3 class="fw-bold mt-2" id="authTitle">Iniciar Sesión</h3>
+                <p class="text-muted fs-6" id="authSubtitle">Ingresa a tu plan de nutrición NEBU Fit30</p>
+            </div>
+            <form id="authForm">
+                <div class="mb-3">
+                    <label for="authEmail" class="form-label">Correo Electrónico</label>
+                    <input type="email" class="form-control" id="authEmail" placeholder="correo@ejemplo.com" required>
+                </div>
+                <div class="mb-3">
+                    <label for="authPassword" class="form-label">Contraseña</label>
+                    <input type="password" class="form-control" id="authPassword" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn btn-success w-100 py-2 fw-semibold" id="btnAuthSubmit">Iniciar Sesión</button>
+            </form>
+            <div class="text-center mt-3">
+                <button type="button" class="btn btn-link text-decoration-none p-0 text-success fw-semibold" id="btnToggleAuthMode">
+                    ¿No tienes cuenta? Regístrate aquí
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sección Principal de la App (Oculta al inicio) -->
+    <div id="appSection" class="d-none">
+        <nav class="navbar navbar-expand-lg border-bottom sticky-top" id="mainNavbar">
+            <div class="container d-flex justify-content-between align-items-center">
+                <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+                    <i class="bi bi-heart-pulse-fill text-success fs-4"></i>
+                    <span>NEBU Fit30</span>
+                </a>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill d-none d-sm-inline-block">
+                        Plan Nutricional 30 Días
+                    </span>
+                    <button class="btn btn-outline-secondary rounded-circle d-flex align-items-center justify-content-center" id="themeToggle" type="button" aria-label="Cambiar tema" style="width: 40px; height: 40px;">
+                        <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm d-flex align-items-center gap-1 ms-2" id="btnLogout">
+                        <i class="bi bi-box-arrow-right"></i> Salir
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container mt-4">
+            <!-- Selector de Días -->
+            <div class="mb-3">
+                <label class="form-label fw-bold text-secondary mb-2"><i class="bi bi-calendar3 me-1"></i> Selecciona el Día del Plan:</label>
+                <div class="day-selector-container" id="daySelector"></div>
+            </div>
+
+            <!-- Panel Nutricional -->
+            <div class="row g-3 mb-4">
+                <div class="col-lg-4 col-md-5">
+                    <div class="macro-card text-center h-100 d-flex flex-column justify-content-center">
+                        <h6 class="text-muted mb-2">Total Calorías Consumidas</h6>
+                        <div style="max-width: 160px; margin: 0 auto;"><canvas id="caloriesChart"></canvas></div>
+                        <h3 class="mt-2 fw-bold" id="totalCalories">0 kcal</h3>
+                    </div>
+                </div>
+                <div class="col-lg-8 col-md-7">
+                    <div class="macro-card h-100">
+                        <h6 class="text-muted mb-3">Desglose de Macronutrientes</h6>
+                        <div class="row g-3 text-center">
+                            <div class="col-3"><div class="p-2 border rounded macro-box"><small class="text-muted d-block">Proteínas</small><strong class="text-success fs-5" id="totalProtein">0g</strong></div></div>
+                            <div class="col-3"><div class="p-2 border rounded macro-box"><small class="text-muted d-block">Carbos</small><strong class="text-primary fs-5" id="totalCarbs">0g</strong></div></div>
+                            <div class="col-3"><div class="p-2 border rounded macro-box"><small class="text-muted d-block">Grasas</small><strong class="text-warning fs-5" id="totalFats">0g</strong></div></div>
+                            <div class="col-3"><div class="p-2 border rounded macro-box"><small class="text-muted d-block">Azúcares</small><strong class="text-danger fs-5" id="totalSugars">0g</strong></div></div>
+                        </div>
+                        <div class="mt-4">
+                            <div class="d-flex justify-content-between mb-1"><small class="fw-semibold">Cumplimiento del Día</small><small id="progressText">0%</small></div>
+                            <div class="progress" style="height: 10px;"><div id="progressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0" id="selectedDayTitle">Comidas del Día 1</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="resetDayCheckboxes()"><i class="bi bi-arrow-counterclockwise"></i> Reiniciar Marcas</button>
+            </div>
+            
+            <div class="accordion meal-accordion" id="mealsAccordion"></div>
+        </div>
+    </div>
+
+    <!-- Modal Profesional para Editar Comida -->
+    <div class="modal fade" id="editMealModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header border-bottom">
+                    <h5 class="modal-title fw-bold text-success"><i class="bi bi-pencil-square me-2"></i>Editar Comida</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editMealForm">
+                        <input type="hidden" id="editMealId">
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label class="form-label fw-bold text-secondary small">Nombre de la comida</label>
+                                <input type="text" class="form-control" id="editName">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-secondary small">Horario</label>
+                                <input type="text" class="form-control" id="editTime">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold text-secondary small">Ingredientes (Uno por línea)</label>
+                                <textarea class="form-control" id="editIngredients" rows="4"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold text-secondary small">Preparación</label>
+                                <textarea class="form-control" id="editPrep" rows="4"></textarea>
+                            </div>
+
+                            <div class="col-12 mt-4 d-flex justify-content-between align-items-center border-bottom pb-2">
+                                <h6 class="fw-bold mb-0">Macronutrientes</h6>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="btnAutoCalc" onclick="autoCalculateMacros()">
+                                    <i class="bi bi-magic me-1"></i> Auto-Calcular con IA
+                                </button>
+                            </div>
+                            <div class="col-md-2 col-6"><label class="form-label small">Calorías (kcal)</label><input type="number" class="form-control form-control-sm" id="editCals"></div>
+                            <div class="col-md-2 col-6"><label class="form-label small">Proteína (g)</label><input type="number" class="form-control form-control-sm" id="editProt"></div>
+                            <div class="col-md-2 col-6"><label class="form-label small">Carbos (g)</label><input type="number" class="form-control form-control-sm" id="editCarbs"></div>
+                            <div class="col-md-2 col-6"><label class="form-label small">Grasas (g)</label><input type="number" class="form-control form-control-sm" id="editFats"></div>
+                            <div class="col-md-3 col-6"><label class="form-label small">Azúcares (g)</label><input type="number" class="form-control form-control-sm" id="editSugars"></div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer border-top-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success px-4" onclick="saveMealChanges()">Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script type="module" src="script.js"></script>
+</body>
+</html>
