@@ -120,18 +120,28 @@ function handleAuthError(error) {
 
 onAuthStateChanged(auth, async (user) => {
   if (user && user.emailVerified) {
-    // Sincronización exclusiva para este usuario con la nube
     try {
       const docRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        window.mealPlanData = docSnap.data().plan;
+        const data = docSnap.data();
+        window.mealPlanData = data.plan || JSON.parse(JSON.stringify(defaultMealPlanData));
+        window.checkboxStates = data.checkboxes || {};
+        
+        // Sincronizar el Tema (Modo Oscuro/Claro) desde la nube
+        if (data.theme) {
+          document.documentElement.setAttribute("data-bs-theme", data.theme);
+          localStorage.setItem("fitplan_theme", data.theme); // Mantiene el caché visual
+          updateThemeIcon(data.theme, document.getElementById("themeIcon"));
+        }
       } else {
         window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
+        window.checkboxStates = {};
       }
     } catch (error) {
-      console.error("Error al cargar el plan del usuario:", error);
+      console.error("Error al cargar datos del usuario:", error);
       window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
+      window.checkboxStates = {};
     }
 
     authSection.classList.add("d-none");
@@ -3119,8 +3129,15 @@ function initThemeToggle() {
     const current = htmlElement.getAttribute("data-bs-theme");
     const next = current === "dark" ? "light" : "dark";
     htmlElement.setAttribute("data-bs-theme", next);
-    localStorage.setItem("fitplan_theme", next);
+    localStorage.setItem("fitplan_theme", next); 
     updateThemeIcon(next, themeIcon);
+
+    // Guardar el tema en la base de datos de Firebase
+    const user = auth.currentUser;
+    if (user) {
+      setDoc(doc(db, "users", user.uid), { theme: next }, { merge: true })
+        .catch(error => console.error("Error guardando el tema:", error));
+    }
   });
 }
 
