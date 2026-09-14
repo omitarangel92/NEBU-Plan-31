@@ -40,7 +40,8 @@ const GROQ_API_KEY = keyPart1 + keyPart2;
 // ==========================================================================
 let isRegisterMode = false;
 let appInitialized = false;
-window.mealPlanData = []; // Variable global vinculada a window para asegurar acceso
+window.mealPlanData = []; 
+window.checkboxStates = {}; // Almacenará los estados de los checkboxes
 
 const authSection = document.getElementById("authSection");
 const appSection = document.getElementById("appSection");
@@ -128,10 +129,9 @@ onAuthStateChanged(auth, async (user) => {
         window.mealPlanData = data.plan || JSON.parse(JSON.stringify(defaultMealPlanData));
         window.checkboxStates = data.checkboxes || {};
         
-        // Sincronizar el Tema (Modo Oscuro/Claro) desde la nube
         if (data.theme) {
           document.documentElement.setAttribute("data-bs-theme", data.theme);
-          localStorage.setItem("fitplan_theme", data.theme); // Mantiene el caché visual
+          localStorage.setItem("fitplan_theme", data.theme); 
           updateThemeIcon(data.theme, document.getElementById("themeIcon"));
         }
       } else {
@@ -2917,7 +2917,6 @@ function renderMealsAndIngredients(meals) {
   accordion.innerHTML = "";
 
   meals.forEach((meal) => {
-    // Aquí retraemos todos los acordeones forzosamente (Petición #1 resuelta)
     const isExpanded = "";
     const isCollapsedClass = "collapsed";
     const ariaExpanded = "false";
@@ -3071,32 +3070,45 @@ function saveCheckboxState() {
   const checkboxes = document.querySelectorAll(".meal-checkbox");
   const state = {};
   checkboxes.forEach(cb => { state[cb.id] = cb.checked; });
-  localStorage.setItem(`fitplan_day_${currentDay}_state_${auth.currentUser?.uid}`, JSON.stringify(state));
+  
+  window.checkboxStates[currentDay] = state;
   updateProgress();
 
   const dayData = window.mealPlanData.find(d => d.day === currentDay);
   if (dayData) updateConsumedCalories(dayData.meals);
+
+  const user = auth.currentUser;
+  if (user) {
+    setDoc(doc(db, "users", user.uid), { checkboxes: window.checkboxStates }, { merge: true });
+  }
 }
 
 function loadCheckboxState() {
-  const saved = localStorage.getItem(`fitplan_day_${currentDay}_state_${auth.currentUser?.uid}`);
-  if (saved) {
-    const state = JSON.parse(saved);
+  const state = window.checkboxStates[currentDay];
+  if (state) {
     for (const id in state) {
       const cb = document.getElementById(id);
       if (cb) cb.checked = state[id];
     }
+  } else {
+    document.querySelectorAll(".meal-checkbox").forEach(cb => cb.checked = false);
   }
   updateProgress();
 }
 
 window.resetDayCheckboxes = function () {
-  localStorage.removeItem(`fitplan_day_${currentDay}_state_${auth.currentUser?.uid}`);
   document.querySelectorAll(".meal-checkbox").forEach(cb => cb.checked = false);
+  window.checkboxStates[currentDay] = {};
+  
   updateProgress();
 
   const dayData = window.mealPlanData.find(d => d.day === currentDay);
   if (dayData) updateConsumedCalories(dayData.meals);
+
+  const user = auth.currentUser;
+  if (user) {
+    setDoc(doc(db, "users", user.uid), { checkboxes: window.checkboxStates }, { merge: true });
+  }
 };
 
 function updateProgress() {
@@ -3132,7 +3144,6 @@ function initThemeToggle() {
     localStorage.setItem("fitplan_theme", next); 
     updateThemeIcon(next, themeIcon);
 
-    // Guardar el tema en la base de datos de Firebase
     const user = auth.currentUser;
     if (user) {
       setDoc(doc(db, "users", user.uid), { theme: next }, { merge: true })
@@ -3199,10 +3210,9 @@ window.saveMealChanges = function() {
   meal.macros.fats = Number(document.getElementById('editFats').value) || meal.macros.fats;
   meal.macros.sugars = Number(document.getElementById('editSugars').value) || meal.macros.sugars;
 
-  // Sincronización con la nube por perfil de usuario
-  const user = getAuth().currentUser;
+  const user = auth.currentUser;
   if (user) {
-    setDoc(doc(getFirestore(), "users", user.uid), { plan: window.mealPlanData })
+    setDoc(doc(db, "users", user.uid), { plan: window.mealPlanData }, { merge: true })
       .then(() => {
         editModalInstance.hide();
         loadDay(currentDay);
