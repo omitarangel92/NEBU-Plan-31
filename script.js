@@ -13,7 +13,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 // ==========================================================================
-// 2. CONFIGURACIÓN E INICIALIZACIÓN DE FIREBASE
+// 2. CONFIGURACIÓN E INICIALIZACIÓN
 // ==========================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyA8oIEjox4y8vm7vsnwd0JQaixiw_6Chvs",
@@ -36,8 +36,131 @@ const keyPart2 = "WGdyb3FYKf8qxqFf1VYuFMwat4dsWKWd";
 const GROQ_API_KEY = keyPart1 + keyPart2;
 
 // ==========================================================================
-// 4. BASE DE DATOS LOCAL Y VARIABLES DE ESTADO
+// 4. VARIABLES GLOBALES
 // ==========================================================================
+let isRegisterMode = false;
+let appInitialized = false;
+window.mealPlanData = []; // Variable global vinculada a window para asegurar acceso
+
+const authSection = document.getElementById("authSection");
+const appSection = document.getElementById("appSection");
+const authForm = document.getElementById("authForm");
+const authEmailInput = document.getElementById("authEmail");
+const authPasswordInput = document.getElementById("authPassword");
+const authTitle = document.getElementById("authTitle");
+const authSubtitle = document.getElementById("authSubtitle");
+const btnAuthSubmit = document.getElementById("btnAuthSubmit");
+const btnToggleAuthMode = document.getElementById("btnToggleAuthMode");
+const btnLogout = document.getElementById("btnLogout");
+
+// ==========================================================================
+// 5. EVENTOS DE AUTENTICACIÓN Y FIRESTORE
+// ==========================================================================
+btnToggleAuthMode.addEventListener("click", () => {
+  isRegisterMode = !isRegisterMode;
+  authForm.reset();
+  if (isRegisterMode) {
+    authTitle.textContent = "Crear Cuenta";
+    authSubtitle.textContent = "Regístrate para acceder al plan nutricional";
+    btnAuthSubmit.textContent = "Registrarse";
+    btnToggleAuthMode.textContent = "¿Ya tienes cuenta? Inicia sesión aquí";
+  } else {
+    authTitle.textContent = "Iniciar Sesión";
+    authSubtitle.textContent = "Ingresa a tu plan de nutrición FitPlan 30";
+    btnAuthSubmit.textContent = "Iniciar Sesión";
+    btnToggleAuthMode.textContent = "¿No tienes cuenta? Regístrate aquí";
+  }
+});
+
+authForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = authEmailInput.value.trim();
+  const password = authPasswordInput.value.trim();
+
+  if (!email || !password) {
+    Swal.fire({ icon: "warning", title: "Campos incompletos", text: "Completa todos los campos.", confirmButtonColor: "#2ecc71" });
+    return;
+  }
+
+  Swal.fire({ title: "Procesando...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+  if (isRegisterMode) {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(userCredential.user);
+      await signOut(auth);
+      Swal.fire({ icon: "info", title: "¡Verifica tu correo!", text: "Te enviamos un enlace de confirmación.", confirmButtonColor: "#2ecc71" });
+      btnToggleAuthMode.click();
+    } catch (error) { handleAuthError(error); }
+  } else {
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      if (!userCredential.user.emailVerified) {
+        await signOut(auth);
+        Swal.fire({ icon: "warning", title: "Cuenta no verificada", text: "Confirma tu correo antes de ingresar.", confirmButtonColor: "#f39c12" });
+        return;
+      }
+      Swal.fire({ icon: "success", title: "¡Bienvenido!", timer: 1500, showConfirmButton: false });
+    } catch (error) { handleAuthError(error); }
+  }
+});
+
+function handleAuthError(error) {
+  let msg = "Ocurrió un error inesperado.";
+  switch (error.code) {
+    case "auth/email-already-in-use": msg = "El correo ya está registrado."; break;
+    case "auth/invalid-email": msg = "Correo con formato inválido."; break;
+    case "auth/weak-password": msg = "La contraseña debe tener al menos 6 caracteres."; break;
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential": msg = "Correo o contraseña incorrectos."; break;
+  }
+  Swal.fire({ icon: "error", title: "Error de Autenticación", text: msg, confirmButtonColor: "#e74c3c" });
+}
+
+onAuthStateChanged(auth, async (user) => {
+  if (user && user.emailVerified) {
+    // Sincronización exclusiva para este usuario con la nube
+    try {
+      const docRef = doc(db, "users", user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        window.mealPlanData = docSnap.data().plan;
+      } else {
+        window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
+      }
+    } catch (error) {
+      console.error("Error al cargar el plan del usuario:", error);
+      window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
+    }
+
+    authSection.classList.add("d-none");
+    appSection.classList.remove("d-none");
+    
+    if (!appInitialized) {
+      appInitialized = true;
+      requestAnimationFrame(() => initApp());
+    } else {
+      loadDay(currentDay);
+    }
+  } else {
+    appSection.classList.add("d-none");
+    authSection.classList.remove("d-none");
+  }
+});
+
+btnLogout.addEventListener("click", () => {
+  Swal.fire({
+    title: "¿Cerrar Sesión?", icon: "question", showCancelButton: true,
+    confirmButtonColor: "#2ecc71", cancelButtonColor: "#d33",
+    confirmButtonText: "Sí, salir", cancelButtonText: "Cancelar"
+  }).then((r) => { if (r.isConfirmed) signOut(auth); });
+});
+
+/* ==========================================================================
+   LÓGICA DEL PROYECTO (FitPlan 30) - BASE DE DATOS ESTATICA
+   ========================================================================== */
+
 const defaultMealPlanData = [
   {
     day: 1,
@@ -2713,12 +2836,9 @@ const defaultMealPlanData = [
   }
 ];
 
-let mealPlanData = JSON.parse(localStorage.getItem("nebu_custom_meals")) || defaultMealPlanData;
-
 let currentDay = 1;
 let caloriesChartInstance = null;
 
-// Detectar el día actual según hora de Colombia
 function getColombiaDayOfMonth() {
   try {
     const fmt = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric" });
@@ -2749,7 +2869,7 @@ function renderDaySelector() {
   const container = document.getElementById("daySelector");
   if (!container) return;
   container.innerHTML = "";
-  mealPlanData.forEach((dayData) => {
+  window.mealPlanData.forEach((dayData) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `btn btn-day ${dayData.day === currentDay ? "active" : ""}`;
@@ -2772,7 +2892,7 @@ function highlightSelectedDayButton() {
 }
 
 function loadDay(dayNum) {
-  const dayData = mealPlanData.find((d) => d.day === dayNum);
+  const dayData = window.mealPlanData.find((d) => d.day === dayNum);
   if (!dayData) return;
   const titleEl = document.getElementById("selectedDayTitle");
   if (titleEl) titleEl.textContent = `Comidas del Día ${dayNum}`;
@@ -2786,10 +2906,11 @@ function renderMealsAndIngredients(meals) {
   if (!accordion) return;
   accordion.innerHTML = "";
 
-  meals.forEach((meal, index) => {
+  meals.forEach((meal) => {
+    // Aquí retraemos todos los acordeones forzosamente (Petición #1 resuelta)
     const isExpanded = "";
-const isCollapsedClass = "collapsed";
-const ariaExpanded = "false";
+    const isCollapsedClass = "collapsed";
+    const ariaExpanded = "false";
 
     const item = document.createElement("div");
     item.className = "accordion-item";
@@ -2940,15 +3061,15 @@ function saveCheckboxState() {
   const checkboxes = document.querySelectorAll(".meal-checkbox");
   const state = {};
   checkboxes.forEach(cb => { state[cb.id] = cb.checked; });
-  localStorage.setItem(`fitplan_day_${currentDay}_state`, JSON.stringify(state));
+  localStorage.setItem(`fitplan_day_${currentDay}_state_${auth.currentUser?.uid}`, JSON.stringify(state));
   updateProgress();
 
-  const dayData = mealPlanData.find(d => d.day === currentDay);
+  const dayData = window.mealPlanData.find(d => d.day === currentDay);
   if (dayData) updateConsumedCalories(dayData.meals);
 }
 
 function loadCheckboxState() {
-  const saved = localStorage.getItem(`fitplan_day_${currentDay}_state`);
+  const saved = localStorage.getItem(`fitplan_day_${currentDay}_state_${auth.currentUser?.uid}`);
   if (saved) {
     const state = JSON.parse(saved);
     for (const id in state) {
@@ -2959,13 +3080,12 @@ function loadCheckboxState() {
   updateProgress();
 }
 
-// Vinculada globalmente para acceso en HTML
 window.resetDayCheckboxes = function () {
-  localStorage.removeItem(`fitplan_day_${currentDay}_state`);
+  localStorage.removeItem(`fitplan_day_${currentDay}_state_${auth.currentUser?.uid}`);
   document.querySelectorAll(".meal-checkbox").forEach(cb => cb.checked = false);
   updateProgress();
 
-  const dayData = mealPlanData.find(d => d.day === currentDay);
+  const dayData = window.mealPlanData.find(d => d.day === currentDay);
   if (dayData) updateConsumedCalories(dayData.meals);
 };
 
@@ -3009,18 +3129,15 @@ function updateThemeIcon(theme, iconElement) {
   iconElement.className = theme === "dark" ? "bi bi-sun-fill text-warning" : "bi bi-moon-stars-fill";
 }
 
-// ==========================================================
-// FUNCIONES GLOBALES PARA EL MODAL (Expuestas a Window)
-// ==========================================================
 let editModalInstance = null;
 
 window.editMeal = function(mealId) {
-  const dayIndex = mealPlanData.findIndex(d => d.day === currentDay);
+  const dayIndex = window.mealPlanData.findIndex(d => d.day === currentDay);
   if (dayIndex === -1) return;
-  const mealIndex = mealPlanData[dayIndex].meals.findIndex(m => m.id === mealId);
+  const mealIndex = window.mealPlanData[dayIndex].meals.findIndex(m => m.id === mealId);
   if (mealIndex === -1) return;
 
-  const meal = mealPlanData[dayIndex].meals[mealIndex];
+  const meal = window.mealPlanData[dayIndex].meals[mealIndex];
 
   document.getElementById('editMealId').value = mealId;
   document.getElementById('editName').value = meal.name;
@@ -3043,12 +3160,12 @@ window.editMeal = function(mealId) {
 window.saveMealChanges = function() {
   const mealId = document.getElementById('editMealId').value;
   
-  const dayIndex = mealPlanData.findIndex(d => d.day === currentDay);
+  const dayIndex = window.mealPlanData.findIndex(d => d.day === currentDay);
   if (dayIndex === -1) return;
-  const mealIndex = mealPlanData[dayIndex].meals.findIndex(m => m.id === mealId);
+  const mealIndex = window.mealPlanData[dayIndex].meals.findIndex(m => m.id === mealId);
   if (mealIndex === -1) return;
 
-  const meal = mealPlanData[dayIndex].meals[mealIndex];
+  const meal = window.mealPlanData[dayIndex].meals[mealIndex];
 
   meal.name = document.getElementById('editName').value || meal.name;
   meal.time = document.getElementById('editTime').value || meal.time;
@@ -3065,13 +3182,13 @@ window.saveMealChanges = function() {
   meal.macros.fats = Number(document.getElementById('editFats').value) || meal.macros.fats;
   meal.macros.sugars = Number(document.getElementById('editSugars').value) || meal.macros.sugars;
 
-  // Guarda en la base de datos en la nube (Firestore) atado al usuario actual
-  const user = auth.currentUser;
+  // Sincronización con la nube por perfil de usuario
+  const user = getAuth().currentUser;
   if (user) {
-    setDoc(doc(db, "users", user.uid), { plan: mealPlanData })
+    setDoc(doc(getFirestore(), "users", user.uid), { plan: window.mealPlanData })
       .then(() => {
-        editModalInstance.hide(); // Cierra el modal solo cuando se guardó con éxito en la nube
-        loadDay(currentDay);      // Recarga la interfaz con los nuevos datos
+        editModalInstance.hide();
+        loadDay(currentDay);
       })
       .catch(error => {
         console.error("Error guardando:", error);
@@ -3108,17 +3225,12 @@ window.autoCalculateMacros = async function() {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 
-        'Authorization': `Bearer ${GROQ_API_KEY}`, // Usamos la variable importada
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json' 
       },
       body: JSON.stringify({
         model: "openai/gpt-oss-20b",
-        messages: [
-          {
-            role: "user",
-            content: promptText
-          }
-        ],
+        messages: [{ role: "user", content: promptText }],
         response_format: { type: "json_object" } 
       })
     });
