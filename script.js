@@ -1,5 +1,5 @@
 // ==========================================================================
-// FIREBASE AUTH (Modular v10)
+// 1. IMPORTACIONES
 // ==========================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -12,8 +12,9 @@ import {
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const db = getFirestore(app);
-
+// ==========================================================================
+// 2. CONFIGURACIÓN E INICIALIZACIÓN DE FIREBASE
+// ==========================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyA8oIEjox4y8vm7vsnwd0JQaixiw_6Chvs",
   authDomain: "fitplan30-76a27.firebaseapp.com",
@@ -23,14 +24,23 @@ const firebaseConfig = {
   appId: "1:1005774749920:web:cf088e83804d14fd51d085"
 };
 
+// PRIMERO: Inicializamos la aplicación
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 
-// CLAVE DE GROQ FRAGMENTADA PARA EVITAR BLOQUEOS DE SEGURIDAD EN GITHUB
+// SEGUNDO: Inicializamos los servicios usando la aplicación ya creada
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ==========================================================================
+// 3. CLAVE DE GROQ FRAGMENTADA
+// ==========================================================================
 const keyPart1 = "gsk_SUQ3Iso7l8LTTF8Zgb3D";
 const keyPart2 = "WGdyb3FYKf8qxqFf1VYuFMwat4dsWKWd";
 const GROQ_API_KEY = keyPart1 + keyPart2;
 
+// ==========================================================================
+// 4. VARIABLES DE INTERFAZ Y ESTADO
+// ==========================================================================
 let isRegisterMode = false;
 let appInitialized = false;
 
@@ -45,108 +55,7 @@ const btnAuthSubmit = document.getElementById("btnAuthSubmit");
 const btnToggleAuthMode = document.getElementById("btnToggleAuthMode");
 const btnLogout = document.getElementById("btnLogout");
 
-btnToggleAuthMode.addEventListener("click", () => {
-  isRegisterMode = !isRegisterMode;
-  authForm.reset();
-  if (isRegisterMode) {
-    authTitle.textContent = "Crear Cuenta";
-    authSubtitle.textContent = "Regístrate para acceder al plan nutricional";
-    btnAuthSubmit.textContent = "Registrarse";
-    btnToggleAuthMode.textContent = "¿Ya tienes cuenta? Inicia sesión aquí";
-  } else {
-    authTitle.textContent = "Iniciar Sesión";
-    authSubtitle.textContent = "Ingresa a tu plan de nutrición FitPlan 30";
-    btnAuthSubmit.textContent = "Iniciar Sesión";
-    btnToggleAuthMode.textContent = "¿No tienes cuenta? Regístrate aquí";
-  }
-});
-
-authForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const email = authEmailInput.value.trim();
-  const password = authPasswordInput.value.trim();
-
-  if (!email || !password) {
-    Swal.fire({ icon: "warning", title: "Campos incompletos", text: "Completa todos los campos.", confirmButtonColor: "#2ecc71" });
-    return;
-  }
-
-  Swal.fire({ title: "Procesando...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
-  if (isRegisterMode) {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await sendEmailVerification(userCredential.user);
-      await signOut(auth);
-      Swal.fire({ icon: "info", title: "¡Verifica tu correo!", text: "Te enviamos un enlace de confirmación.", confirmButtonColor: "#2ecc71" });
-      btnToggleAuthMode.click();
-    } catch (error) { handleAuthError(error); }
-  } else {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      if (!userCredential.user.emailVerified) {
-        await signOut(auth);
-        Swal.fire({ icon: "warning", title: "Cuenta no verificada", text: "Confirma tu correo antes de ingresar.", confirmButtonColor: "#f39c12" });
-        return;
-      }
-      Swal.fire({ icon: "success", title: "¡Bienvenido!", timer: 1500, showConfirmButton: false });
-    } catch (error) { handleAuthError(error); }
-  }
-});
-
-function handleAuthError(error) {
-  let msg = "Ocurrió un error inesperado.";
-  switch (error.code) {
-    case "auth/email-already-in-use": msg = "El correo ya está registrado."; break;
-    case "auth/invalid-email": msg = "Correo con formato inválido."; break;
-    case "auth/weak-password": msg = "La contraseña debe tener al menos 6 caracteres."; break;
-    case "auth/user-not-found":
-    case "auth/wrong-password":
-    case "auth/invalid-credential": msg = "Correo o contraseña incorrectos."; break;
-  }
-  Swal.fire({ icon: "error", title: "Error de Autenticación", text: msg, confirmButtonColor: "#e74c3c" });
-}
-
-onAuthStateChanged(auth, async (user) => {
-  if (user && user.emailVerified) {
-    
-    // 1. Descargamos el plan único de este usuario desde Firestore
-    try {
-      const docRef = doc(db, "users", user.uid);
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        mealPlanData = docSnap.data().plan;
-      } else {
-        mealPlanData = defaultMealPlanData; // Si es usuario nuevo, usa la plantilla base
-      }
-    } catch (error) {
-      console.error("Error al cargar el plan del usuario:", error);
-      mealPlanData = defaultMealPlanData; // Respaldo en caso de error de conexión
-    }
-
-    authSection.classList.add("d-none");
-    appSection.classList.remove("d-none");
-    
-    if (!appInitialized) {
-      appInitialized = true;
-      requestAnimationFrame(() => initApp());
-    } else {
-      loadDay(currentDay);
-    }
-  } else {
-    appSection.classList.add("d-none");
-    authSection.classList.remove("d-none");
-  }
-});
-
-btnLogout.addEventListener("click", () => {
-  Swal.fire({
-    title: "¿Cerrar Sesión?", icon: "question", showCancelButton: true,
-    confirmButtonColor: "#2ecc71", cancelButtonColor: "#d33",
-    confirmButtonText: "Sí, salir", cancelButtonText: "Cancelar"
-  }).then((r) => { if (r.isConfirmed) signOut(auth); });
-});
+// (A partir de aquí, deja el resto de tu código intacto: btnToggleAuthMode.addEventListener...)
 
 /* ==========================================================================
    LÓGICA DEL PROYECTO (FitPlan 30)
