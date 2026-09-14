@@ -2,6 +2,7 @@
 // FIREBASE AUTH (Modular v10)
 // ==========================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import {
   getAuth,
   createUserWithEmailAndPassword,
@@ -10,6 +11,8 @@ import {
   signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+const db = getFirestore(app);
 
 const firebaseConfig = {
   apiKey: "AIzaSyA8oIEjox4y8vm7vsnwd0JQaixiw_6Chvs",
@@ -104,10 +107,27 @@ function handleAuthError(error) {
   Swal.fire({ icon: "error", title: "Error de Autenticación", text: msg, confirmButtonColor: "#e74c3c" });
 }
 
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   if (user && user.emailVerified) {
+    
+    // 1. Descargamos el plan único de este usuario desde Firestore
+    try {
+      const docRef = doc(db, "users", user.uid);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        mealPlanData = docSnap.data().plan;
+      } else {
+        mealPlanData = defaultMealPlanData; // Si es usuario nuevo, usa la plantilla base
+      }
+    } catch (error) {
+      console.error("Error al cargar el plan del usuario:", error);
+      mealPlanData = defaultMealPlanData; // Respaldo en caso de error de conexión
+    }
+
     authSection.classList.add("d-none");
     appSection.classList.remove("d-none");
+    
     if (!appInitialized) {
       appInitialized = true;
       requestAnimationFrame(() => initApp());
@@ -2880,9 +2900,9 @@ function renderMealsAndIngredients(meals) {
   accordion.innerHTML = "";
 
   meals.forEach((meal, index) => {
-    const isExpanded = index === 0 ? "show" : "";
-    const isCollapsedClass = index === 0 ? "" : "collapsed";
-    const ariaExpanded = index === 0 ? "true" : "false";
+    const isExpanded = "";
+const isCollapsedClass = "collapsed";
+const ariaExpanded = "false";
 
     const item = document.createElement("div");
     item.className = "accordion-item";
@@ -3158,10 +3178,21 @@ window.saveMealChanges = function() {
   meal.macros.fats = Number(document.getElementById('editFats').value) || meal.macros.fats;
   meal.macros.sugars = Number(document.getElementById('editSugars').value) || meal.macros.sugars;
 
-  localStorage.setItem("nebu_custom_meals", JSON.stringify(mealPlanData));
-
-  editModalInstance.hide();
-  loadDay(currentDay);
+  // Guarda en la base de datos en la nube (Firestore) atado al usuario actual
+  const user = auth.currentUser;
+  if (user) {
+    setDoc(doc(db, "users", user.uid), { plan: mealPlanData })
+      .then(() => {
+        editModalInstance.hide(); // Cierra el modal solo cuando se guardó con éxito en la nube
+        loadDay(currentDay);      // Recarga la interfaz con los nuevos datos
+      })
+      .catch(error => {
+        console.error("Error guardando:", error);
+        Swal.fire({ icon: "error", title: "Error", text: "No se pudieron guardar los cambios en la nube." });
+      });
+  } else {
+    Swal.fire({ icon: "warning", title: "Sesión expirada", text: "Vuelve a iniciar sesión para guardar cambios." });
+  }
 }
 
 window.autoCalculateMacros = async function() {
