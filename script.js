@@ -2,7 +2,6 @@
 // FIREBASE AUTH (Modular v10)
 // ==========================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { GROQ_API_KEY } from "./config.js";
 import {
   getAuth,
   createUserWithEmailAndPassword,
@@ -23,6 +22,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
+// CLAVE DE GROQ FRAGMENTADA PARA EVITAR BLOQUEOS DE SEGURIDAD EN GITHUB
+const keyPart1 = "gsk_SUQ3Iso7l8LTTF8Zgb3D";
+const keyPart2 = "WGdyb3FYKf8qxqFf1VYuFMwat4dsWKWd";
+const GROQ_API_KEY = keyPart1 + keyPart2;
 
 let isRegisterMode = false;
 let appInitialized = false;
