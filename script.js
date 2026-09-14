@@ -24,10 +24,7 @@ const firebaseConfig = {
   appId: "1:1005774749920:web:cf088e83804d14fd51d085"
 };
 
-// PRIMERO: Inicializamos la aplicación
 const app = initializeApp(firebaseConfig);
-
-// SEGUNDO: Inicializamos los servicios usando la aplicación ya creada
 const auth = getAuth(app);
 const db = getFirestore(app);
 
@@ -39,27 +36,8 @@ const keyPart2 = "WGdyb3FYKf8qxqFf1VYuFMwat4dsWKWd";
 const GROQ_API_KEY = keyPart1 + keyPart2;
 
 // ==========================================================================
-// 4. VARIABLES DE INTERFAZ Y ESTADO
+// 4. BASE DE DATOS LOCAL Y VARIABLES DE ESTADO
 // ==========================================================================
-let isRegisterMode = false;
-let appInitialized = false;
-
-const authSection = document.getElementById("authSection");
-const appSection = document.getElementById("appSection");
-const authForm = document.getElementById("authForm");
-const authEmailInput = document.getElementById("authEmail");
-const authPasswordInput = document.getElementById("authPassword");
-const authTitle = document.getElementById("authTitle");
-const authSubtitle = document.getElementById("authSubtitle");
-const btnAuthSubmit = document.getElementById("btnAuthSubmit");
-const btnToggleAuthMode = document.getElementById("btnToggleAuthMode");
-const btnLogout = document.getElementById("btnLogout");
-
-// (A partir de aquí, deja el resto de tu código intacto: btnToggleAuthMode.addEventListener...)
-
-/* ==========================================================================
-   LÓGICA DEL PROYECTO (FitPlan 30)
-   ========================================================================== */
 const defaultMealPlanData = [
   {
     day: 1,
