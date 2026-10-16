@@ -16,10 +16,11 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 const sharedMarketRef = doc(db, "sharedData", "marketCompleteData");
+const DEFAULT_MARKET_BUDGET = 400000;
 
 // Lista completa de productos
 const defaultMarketState = {
-  generalBudget: 400000,
+  generalBudget: DEFAULT_MARKET_BUDGET,
   theme: "light",
   generalItems: [
     {"status": "NO", "concept": "Bolsas de basura", "area": "Aseo Casita", "price": 1900, "qty": 1},
@@ -171,7 +172,18 @@ const defaultMarketState = {
   ]
 };
 
-window.marketState = JSON.parse(JSON.stringify(defaultMarketState));
+function createDefaultMarketState() {
+  const state = JSON.parse(JSON.stringify(defaultMarketState));
+  state.generalBudget = DEFAULT_MARKET_BUDGET;
+  state.generalItems = state.generalItems.map(item => ({
+    ...item,
+    status: "NO",
+    place: ""
+  }));
+  return state;
+}
+
+window.marketState = createDefaultMarketState();
 
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
@@ -184,9 +196,39 @@ onSnapshot(sharedMarketRef, (docSnap) => {
   if (docSnap.exists()) {
     const cloudData = docSnap.data().data;
     if (cloudData && Array.isArray(cloudData.generalItems) && cloudData.generalItems.length >= 100) {
-      window.marketState = cloudData;
+      const parsedBudget = Number(cloudData.generalBudget);
+      const hasValidBudget = cloudData.generalBudget !== null
+        && cloudData.generalBudget !== ""
+        && Number.isFinite(parsedBudget);
+      const needsMigration = !hasValidBudget
+        || cloudData.generalItems.some(item =>
+          !item
+          || !["NO", "SI", "YA"].includes(item.status)
+          || typeof item.place !== "string"
+        );
+      window.marketState = {
+        ...cloudData,
+        generalBudget: hasValidBudget
+          ? parsedBudget
+          : DEFAULT_MARKET_BUDGET,
+        generalItems: cloudData.generalItems.map(item => {
+          const product = item && typeof item === "object" ? item : {};
+          const price = Number(product.price);
+          const qty = Number(product.qty);
+          return {
+            ...product,
+            status: ["NO", "SI", "YA"].includes(product.status) ? product.status : "NO",
+            concept: typeof product.concept === "string" ? product.concept : "",
+            area: typeof product.area === "string" ? product.area : "",
+            place: typeof product.place === "string" ? product.place : "",
+            price: Number.isFinite(price) ? price : 0,
+            qty: Number.isFinite(qty) && qty >= 1 ? qty : 1
+          };
+        })
+      };
+      if (needsMigration) saveData();
     } else {
-      window.marketState = defaultMarketState;
+      window.marketState = createDefaultMarketState();
       saveData();
     }
     if (window.marketState.theme) {
@@ -195,7 +237,8 @@ onSnapshot(sharedMarketRef, (docSnap) => {
       updateThemeIcon(window.marketState.theme, document.getElementById("themeIcon"));
     }
   } else {
-    setDoc(sharedMarketRef, { data: defaultMarketState });
+    window.marketState = createDefaultMarketState();
+    setDoc(sharedMarketRef, { data: window.marketState });
   }
   renderGeneralTable();
 });
@@ -260,15 +303,17 @@ function renderGeneralTable() {
   const searchText = (document.getElementById("searchConcept")?.value || "").toLowerCase();
   const statusFilter = document.getElementById("filterStatus")?.value || "";
   const areaFilter = document.getElementById("filterArea")?.value || "";
+  updatePlaceFilter();
+  const placeFilter = document.getElementById("filterPlace")?.value || "";
 
-  let fullSpent = 0;
-  window.marketState.generalItems.forEach(i => fullSpent += (i.price * i.qty));
+  const fullSpent = calculateTotalSpent(window.marketState.generalItems);
 
   let visibleCount = 0;
   window.marketState.generalItems.forEach((item, index) => {
     if (searchText && !item.concept.toLowerCase().includes(searchText)) return;
     if (statusFilter && item.status !== statusFilter) return;
     if (areaFilter && item.area !== areaFilter) return;
+    if (placeFilter && item.place !== placeFilter) return;
 
     visibleCount++;
     const total = item.price * item.qty;
@@ -284,6 +329,7 @@ function renderGeneralTable() {
       </td>
       <td class="fw-semibold">${item.concept}</td>
       <td><span class="badge bg-secondary-subtle text-secondary border">${item.area}</span></td>
+      <td>${escapeHtml(item.place || "—")}</td>
       <td class="text-end">$${item.price.toLocaleString("es-CO")}</td>
       <td class="text-center">${item.qty}</td>
       <td class="text-end fw-bold">$${total.toLocaleString("es-CO")}</td>
@@ -295,7 +341,9 @@ function renderGeneralTable() {
     tbody.appendChild(tr);
   });
 
-  const budget = window.marketState.generalBudget || 500000;
+  const budget = Number.isFinite(Number(window.marketState.generalBudget))
+    ? Number(window.marketState.generalBudget)
+    : DEFAULT_MARKET_BUDGET;
   const remaining = budget - fullSpent;
 
   const countTitle = document.getElementById("itemCountTitle");
@@ -304,6 +352,39 @@ function renderGeneralTable() {
   document.getElementById("genBudget").textContent = `$${budget.toLocaleString("es-CO")}`;
   document.getElementById("genTotal").textContent = `$${fullSpent.toLocaleString("es-CO")}`;
   document.getElementById("genRemaining").textContent = `$${remaining.toLocaleString("es-CO")}`;
+}
+
+function calculateTotalSpent(items) {
+  return items.reduce((total, item) => {
+    return item.status === "SI" || item.status === "YA"
+      ? total + (item.price * item.qty)
+      : total;
+  }, 0);
+}
+
+function updatePlaceFilter() {
+  const select = document.getElementById("filterPlace");
+  if (!select) return;
+
+  const selectedPlace = select.value;
+  const places = [...new Set(window.marketState.generalItems
+    .map(item => item.place.trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+
+  select.replaceChildren(new Option("Lugar de compra: Todos", ""));
+  places.forEach(place => select.add(new Option(place, place)));
+  if (places.includes(selectedPlace)) select.value = selectedPlace;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
 }
 
 window.updateGenStatus = function(index, val) {
@@ -316,6 +397,7 @@ window.openAddGeneralModal = function() {
   document.getElementById("genProdIndex").value = "";
   document.getElementById("genConcept").value = "";
   document.getElementById("genArea").value = "Aseo Casita";
+  document.getElementById("genPlace").value = "";
   document.getElementById("genPrice").value = "";
   document.getElementById("genQty").value = "1";
   document.getElementById("genStatus").value = "NO";
@@ -328,6 +410,7 @@ window.openEditGeneralModal = function(index) {
   document.getElementById("genProdIndex").value = index;
   document.getElementById("genConcept").value = item.concept;
   document.getElementById("genArea").value = item.area;
+  document.getElementById("genPlace").value = item.place || "";
   document.getElementById("genPrice").value = item.price;
   document.getElementById("genQty").value = item.qty;
   document.getElementById("genStatus").value = item.status;
@@ -338,6 +421,7 @@ window.saveGeneralProduct = function() {
   const idx = document.getElementById("genProdIndex").value;
   const concept = document.getElementById("genConcept").value;
   const area = document.getElementById("genArea").value;
+  const place = document.getElementById("genPlace").value.trim();
   const price = Number(document.getElementById("genPrice").value) || 0;
   const qty = Number(document.getElementById("genQty").value) || 1;
   const status = document.getElementById("genStatus").value;
@@ -347,7 +431,7 @@ window.saveGeneralProduct = function() {
     return;
   }
 
-  const newItem = { status, concept, area, price, qty };
+  const newItem = { status, concept, area, place, price, qty };
   if (idx === "") window.marketState.generalItems.push(newItem);
   else window.marketState.generalItems[Number(idx)] = newItem;
 
@@ -392,16 +476,20 @@ window.changeGeneralBudget = function() {
 window.restoreFullList = function() {
   Swal.fire({
     title: '¿Restablecer lista completa?',
-    text: "Se recargarán los 145+ productos originales en la base de datos.",
+    text: "Se recargarán los productos originales en estado NO y el presupuesto volverá a $400.000.",
     icon: 'question',
     showCancelButton: true,
     confirmButtonText: 'Sí, restablecer',
     cancelButtonText: 'Cancelar'
   }).then((res) => {
     if (res.isConfirmed) {
-      window.marketState = JSON.parse(JSON.stringify(defaultMarketState));
+      window.marketState = createDefaultMarketState();
+      document.getElementById("searchConcept").value = "";
+      document.getElementById("filterStatus").value = "";
+      document.getElementById("filterArea").value = "";
+      document.getElementById("filterPlace").value = "";
       saveData();
-      Swal.fire('Restablecido', 'Lista completa recuperada con éxito', 'success');
+      Swal.fire('Restablecido', 'Lista completa recuperada en estado NO con un presupuesto de $400.000.', 'success');
     }
   });
 };
