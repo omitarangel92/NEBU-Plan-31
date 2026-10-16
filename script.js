@@ -2,15 +2,8 @@
 // 1. IMPORTACIONES
 // ==========================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import {
-  getAuth,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  sendEmailVerification,
-  signOut,
-  onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 // ==========================================================================
 // 2. CONFIGURACIÓN E INICIALIZACIÓN
@@ -25,8 +18,8 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db = getFirestore(app);
+const auth = getAuth(app);
 
 // ==========================================================================
 // 3. CLAVE DE GROQ FRAGMENTADA
@@ -38,97 +31,29 @@ const GROQ_API_KEY = keyPart1 + keyPart2;
 // ==========================================================================
 // 4. VARIABLES GLOBALES
 // ==========================================================================
-let isRegisterMode = false;
 let appInitialized = false;
 window.mealPlanData = []; 
-window.checkboxStates = {}; // Almacenará los estados de los checkboxes
+window.checkboxStates = {}; 
+let currentUserUid = null;
 
-const authSection = document.getElementById("authSection");
-const appSection = document.getElementById("appSection");
-const authForm = document.getElementById("authForm");
-const authEmailInput = document.getElementById("authEmail");
-const authPasswordInput = document.getElementById("authPassword");
-const authTitle = document.getElementById("authTitle");
-const authSubtitle = document.getElementById("authSubtitle");
-const btnAuthSubmit = document.getElementById("btnAuthSubmit");
-const btnToggleAuthMode = document.getElementById("btnToggleAuthMode");
-const btnLogout = document.getElementById("btnLogout");
+const sharedPlanRef = doc(db, "sharedData", "mainPlan");
 
 // ==========================================================================
-// 5. EVENTOS DE AUTENTICACIÓN Y FIRESTORE
+// 5. AUTENTICACIÓN ANÓNIMA Y SINCRONIZACIÓN
 // ==========================================================================
-btnToggleAuthMode.addEventListener("click", () => {
-  isRegisterMode = !isRegisterMode;
-  authForm.reset();
-  if (isRegisterMode) {
-    authTitle.textContent = "Crear Cuenta";
-    authSubtitle.textContent = "Regístrate para acceder al plan nutricional";
-    btnAuthSubmit.textContent = "Registrarse";
-    btnToggleAuthMode.textContent = "¿Ya tienes cuenta? Inicia sesión aquí";
-  } else {
-    authTitle.textContent = "Iniciar Sesión";
-    authSubtitle.textContent = "Ingresa a tu plan de nutrición FitPlan 30";
-    btnAuthSubmit.textContent = "Iniciar Sesión";
-    btnToggleAuthMode.textContent = "¿No tienes cuenta? Regístrate aquí";
-  }
+signInAnonymously(auth).catch((error) => {
+  console.error("Error en la autenticación anónima:", error);
 });
 
-authForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const email = authEmailInput.value.trim();
-  const password = authPasswordInput.value.trim();
-
-  if (!email || !password) {
-    Swal.fire({ icon: "warning", title: "Campos incompletos", text: "Completa todos los campos.", confirmButtonColor: "#2ecc71" });
-    return;
-  }
-
-  Swal.fire({ title: "Procesando...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
-  if (isRegisterMode) {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await sendEmailVerification(userCredential.user);
-      await signOut(auth);
-      Swal.fire({ icon: "info", title: "¡Verifica tu correo!", text: "Te enviamos un enlace de confirmación.", confirmButtonColor: "#2ecc71" });
-      btnToggleAuthMode.click();
-    } catch (error) { handleAuthError(error); }
-  } else {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      if (!userCredential.user.emailVerified) {
-        await signOut(auth);
-        Swal.fire({ icon: "warning", title: "Cuenta no verificada", text: "Confirma tu correo antes de ingresar.", confirmButtonColor: "#f39c12" });
-        return;
-      }
-      Swal.fire({ icon: "success", title: "¡Bienvenido!", timer: 1500, showConfirmButton: false });
-    } catch (error) { handleAuthError(error); }
-  }
-});
-
-function handleAuthError(error) {
-  let msg = "Ocurrió un error inesperado.";
-  switch (error.code) {
-    case "auth/email-already-in-use": msg = "El correo ya está registrado."; break;
-    case "auth/invalid-email": msg = "Correo con formato inválido."; break;
-    case "auth/weak-password": msg = "La contraseña debe tener al menos 6 caracteres."; break;
-    case "auth/user-not-found":
-    case "auth/wrong-password":
-    case "auth/invalid-credential": msg = "Correo o contraseña incorrectos."; break;
-  }
-  Swal.fire({ icon: "error", title: "Error de Autenticación", text: msg, confirmButtonColor: "#e74c3c" });
-}
-
-onAuthStateChanged(auth, async (user) => {
-  if (user && user.emailVerified) {
-    try {
-      const docRef = doc(db, "users", user.uid);
-      const docSnap = await getDoc(docRef);
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    currentUserUid = user.uid;
+    
+    // 1. Plan de comidas compartido en tiempo real
+    onSnapshot(sharedPlanRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         window.mealPlanData = data.plan || JSON.parse(JSON.stringify(defaultMealPlanData));
-        window.checkboxStates = data.checkboxes || {};
-        
         if (data.theme) {
           document.documentElement.setAttribute("data-bs-theme", data.theme);
           localStorage.setItem("fitplan_theme", data.theme); 
@@ -136,35 +61,32 @@ onAuthStateChanged(auth, async (user) => {
         }
       } else {
         window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
+        setDoc(sharedPlanRef, {
+          plan: window.mealPlanData,
+          theme: "light"
+        });
+      }
+
+      if (!appInitialized) {
+        appInitialized = true;
+        initApp();
+      } else {
+        loadDay(currentDay);
+      }
+    });
+
+    // 2. Checkboxes independientes por dispositivo en tiempo real
+    const userCheckboxesRef = doc(db, "users", currentUserUid);
+    onSnapshot(userCheckboxesRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        window.checkboxStates = data.checkboxes || {};
+      } else {
         window.checkboxStates = {};
       }
-    } catch (error) {
-      console.error("Error al cargar datos del usuario:", error);
-      window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
-      window.checkboxStates = {};
-    }
-
-    authSection.classList.add("d-none");
-    appSection.classList.remove("d-none");
-    
-    if (!appInitialized) {
-      appInitialized = true;
-      requestAnimationFrame(() => initApp());
-    } else {
-      loadDay(currentDay);
-    }
-  } else {
-    appSection.classList.add("d-none");
-    authSection.classList.remove("d-none");
+      loadCheckboxState();
+    });
   }
-});
-
-btnLogout.addEventListener("click", () => {
-  Swal.fire({
-    title: "¿Cerrar Sesión?", icon: "question", showCancelButton: true,
-    confirmButtonColor: "#2ecc71", cancelButtonColor: "#d33",
-    confirmButtonText: "Sí, salir", cancelButtonText: "Cancelar"
-  }).then((r) => { if (r.isConfirmed) signOut(auth); });
 });
 
 /* ==========================================================================
@@ -2917,28 +2839,27 @@ function renderMealsAndIngredients(meals) {
   accordion.innerHTML = "";
 
   meals.forEach((meal) => {
-    const isExpanded = "";
-    const isCollapsedClass = "collapsed";
-    const ariaExpanded = "false";
+    // Solución para evitar problemas con plantillas anidadas usando concatenación tradicional
+    const ingredientsHtml = meal.ingredients.map(ing => '<li>' + ing + '</li>').join('');
 
     const item = document.createElement("div");
     item.className = "accordion-item";
     item.innerHTML = `
       <h2 class="accordion-header" id="heading-${meal.id}">
-        <button class="accordion-button ${isCollapsedClass}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${meal.id}" aria-expanded="${ariaExpanded}" aria-controls="collapse-${meal.id}">
+        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${meal.id}" aria-expanded="false" aria-controls="collapse-${meal.id}">
           <div class="d-flex align-items-center w-100 justify-content-between pe-3">
             <div>
               <i class="bi ${meal.icon} text-success me-2"></i>
               <span class="meal-title">${meal.type}: ${meal.name}</span>
-<button class="btn btn-sm btn-link text-secondary p-0 ms-2" onclick="event.stopPropagation(); window.editMeal('${meal.id}')" title="Editar Comida">
-  <i class="bi bi-pencil-square"></i>
-</button>
+              <button class="btn btn-sm btn-link text-secondary p-0 ms-2" onclick="event.stopPropagation(); window.editMeal('${meal.id}')" title="Editar Comida">
+                <i class="bi bi-pencil-square"></i>
+              </button>
             </div>
             <span class="badge-time"><i class="bi bi-clock me-1"></i>${meal.time}</span>
           </div>
         </button>
       </h2>
-      <div id="collapse-${meal.id}" class="accordion-collapse collapse ${isExpanded}" aria-labelledby="heading-${meal.id}" data-bs-parent="#mealsAccordion">
+      <div id="collapse-${meal.id}" class="accordion-collapse collapse" aria-labelledby="heading-${meal.id}" data-bs-parent="#mealsAccordion">
         <div class="accordion-body">
           <div class="form-check mb-3">
             <input class="form-check-input meal-checkbox" type="checkbox" id="check-${meal.id}" data-day="${currentDay}">
@@ -2947,7 +2868,7 @@ function renderMealsAndIngredients(meals) {
             </label>
           </div>
           <h6 class="fw-bold text-secondary mb-2"><i class="bi bi-basket me-1"></i> Ingredientes:</h6>
-          <ul class="mb-3 ps-3">${meal.ingredients.map(i => `<li>${i}</li>`).join("")}</ul>
+          <ul class="mb-3 ps-3">${ingredientsHtml}</ul>
           <h6 class="fw-bold text-secondary mb-2"><i class="bi bi-journal-text me-1"></i> Preparación:</h6>
           <p class="prep-box mb-3">${meal.prep}</p>
           <div class="table-responsive">
@@ -2970,6 +2891,7 @@ function renderMealsAndIngredients(meals) {
 
   const allIngredients = [];
   meals.forEach(m => m.ingredients.forEach(i => allIngredients.push(i)));
+  const allIngredientsHtml = allIngredients.length ? allIngredients.map(ing => '<li class="py-1">' + ing + '</li>').join('') : '<li class="text-muted">Sin ingredientes.</li>';
 
   const generalItem = document.createElement("div");
   generalItem.className = "accordion-item";
@@ -2988,7 +2910,7 @@ function renderMealsAndIngredients(meals) {
     <div id="collapse-general-ingredients" class="accordion-collapse collapse" aria-labelledby="heading-general-ingredients" data-bs-parent="#mealsAccordion">
       <div class="accordion-body">
         <ul class="mb-0 ps-3">
-          ${allIngredients.length ? allIngredients.map(i => `<li class="py-1">${i}</li>`).join("") : '<li class="text-muted">Sin ingredientes.</li>'}
+          ${allIngredientsHtml}
         </ul>
       </div>
     </div>`;
@@ -3077,9 +2999,8 @@ function saveCheckboxState() {
   const dayData = window.mealPlanData.find(d => d.day === currentDay);
   if (dayData) updateConsumedCalories(dayData.meals);
 
-  const user = auth.currentUser;
-  if (user) {
-    setDoc(doc(db, "users", user.uid), { checkboxes: window.checkboxStates }, { merge: true });
+  if (currentUserUid) {
+    setDoc(doc(db, "users", currentUserUid), { checkboxes: window.checkboxStates }, { merge: true });
   }
 }
 
@@ -3105,9 +3026,8 @@ window.resetDayCheckboxes = function () {
   const dayData = window.mealPlanData.find(d => d.day === currentDay);
   if (dayData) updateConsumedCalories(dayData.meals);
 
-  const user = auth.currentUser;
-  if (user) {
-    setDoc(doc(db, "users", user.uid), { checkboxes: window.checkboxStates }, { merge: true });
+  if (currentUserUid) {
+    setDoc(doc(db, "users", currentUserUid), { checkboxes: window.checkboxStates }, { merge: true });
   }
 };
 
@@ -3144,11 +3064,8 @@ function initThemeToggle() {
     localStorage.setItem("fitplan_theme", next); 
     updateThemeIcon(next, themeIcon);
 
-    const user = auth.currentUser;
-    if (user) {
-      setDoc(doc(db, "users", user.uid), { theme: next }, { merge: true })
-        .catch(error => console.error("Error guardando el tema:", error));
-    }
+    setDoc(sharedPlanRef, { theme: next }, { merge: true })
+      .catch(error => console.error("Error guardando el tema:", error));
   });
 }
 
@@ -3210,20 +3127,15 @@ window.saveMealChanges = function() {
   meal.macros.fats = Number(document.getElementById('editFats').value) || meal.macros.fats;
   meal.macros.sugars = Number(document.getElementById('editSugars').value) || meal.macros.sugars;
 
-  const user = auth.currentUser;
-  if (user) {
-    setDoc(doc(db, "users", user.uid), { plan: window.mealPlanData }, { merge: true })
-      .then(() => {
-        editModalInstance.hide();
-        loadDay(currentDay);
-      })
-      .catch(error => {
-        console.error("Error guardando:", error);
-        Swal.fire({ icon: "error", title: "Error", text: "No se pudieron guardar los cambios en la nube." });
-      });
-  } else {
-    Swal.fire({ icon: "warning", title: "Sesión expirada", text: "Vuelve a iniciar sesión para guardar cambios." });
-  }
+  setDoc(sharedPlanRef, { plan: window.mealPlanData }, { merge: true })
+    .then(() => {
+      editModalInstance.hide();
+      loadDay(currentDay);
+    })
+    .catch(error => {
+      console.error("Error guardando:", error);
+      Swal.fire({ icon: "error", title: "Error", text: "No se pudieron guardar los cambios en la nube." });
+    });
 }
 
 window.autoCalculateMacros = async function() {

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NEBU - Lista de Mercado Avanzada</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="mercado.css">
+</head>
+<body>
+
+    <!-- Navegación -->
+    <nav class="navbar navbar-expand-lg border-bottom sticky-top">
+        <div class="container d-flex justify-content-between align-items-center py-2">
+            <a class="navbar-brand d-flex align-items-center gap-2 text-success fw-bold" href="index.html">
+                <i class="bi bi-cart-check-fill fs-3"></i>
+                <span class="fs-5">NEBU Mercado</span>
+            </a>
+            <div class="d-flex align-items-center gap-2">
+                <a href="index.html" class="btn btn-outline-success btn-sm rounded-pill px-3 fw-semibold"><i class="bi bi-calendar3 me-1"></i> Plan Nutricional</a>
+                <button class="btn btn-outline-secondary rounded-circle d-flex align-items-center justify-content-center" id="themeToggle" type="button" style="width: 40px; height: 40px;">
+                    <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+
+        <div class="tab-content" id="marketTabContent">
+            
+            <!-- VISTA 1: MERCADO GENERAL -->
+            <div class="tab-pane fade show active" id="viewGeneral">
+                <!-- Resumen Financiero General -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="card p-3 text-center bg-success-subtle text-success border-0 shadow-sm">
+                            <small class="fw-semibold text-uppercase opacity-75">Presupuesto General</small>
+                            <h3 class="fw-bold mb-0 my-1" id="genBudget">$500.000</h3>
+                            <button class="btn btn-link text-success btn-sm p-0 text-decoration-none fw-semibold" onclick="changeGeneralBudget()"><i class="bi bi-pencil-square"></i> Cambiar Presupuesto</button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card p-3 text-center bg-primary-subtle text-primary border-0 shadow-sm">
+                            <small class="fw-semibold text-uppercase opacity-75">Total Gastado</small>
+                            <h3 class="fw-bold mb-0 my-1" id="genTotal">$0</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card p-3 text-center bg-warning-subtle text-warning-emphasis border-0 shadow-sm">
+                            <small class="fw-semibold text-uppercase opacity-75">Restante / Saldo</small>
+                            <h3 class="fw-bold mb-0 my-1" id="genRemaining">$0</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filtros y Buscador -->
+                <div class="card p-3 mb-4">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-lg-6 col-md-12">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control" id="searchConcept" placeholder="Buscar por concepto o producto..." oninput="filterGeneralTable()">
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <select class="form-select" id="filterStatus" onchange="filterGeneralTable()">
+                                <option value="">Estado: Todos</option>
+                                <option value="NO">NO (Pendiente)</option>
+                                <option value="SI">SI (Comprado)</option>
+                                <option value="YA">YA (Ya se tiene)</option>
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <select class="form-select" id="filterArea" onchange="filterGeneralTable()">
+                                <option value="">Área: Todas</option>
+                                <option value="Aseo Casita">Aseo Casita</option>
+                                <option value="Aseo Cocina">Aseo Cocina</option>
+                                <option value="Aseo Personal">Aseo Personal</option>
+                                <option value="Baño">Baño</option>
+                                <option value="Lavandería">Lavandería</option>
+                                <option value="Proteina">Proteina</option>
+                                <option value="Salsas">Salsas</option>
+                                <option value="Granos">Granos</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                    <h5 class="fw-bold mb-0 text-secondary"><i class="bi bi-list-columns-reverse me-2"></i>Lista Completa (145 Ítems)</h5>
+                    <button class="btn btn-success fw-semibold px-4 rounded-pill shadow-sm" onclick="openAddGeneralModal()"><i class="bi bi-plus-lg me-1"></i> Agregar Producto</button>
+                </div>
+
+                <div class="card overflow-hidden">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 120px;" class="ps-3">ESTADO</th>
+                                        <th>CONCEPTO</th>
+                                        <th>ÁREA</th>
+                                        <th class="text-end">P.U ($)</th>
+                                        <th class="text-center">CANT.</th>
+                                        <th class="text-end">TOTAL ($)</th>
+                                        <th class="text-center pe-3" style="width: 100px;">ACCIONES</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableGeneralBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA 2: MERCADO SEMANAL -->
+            <div class="tab-pane fade" id="viewSemanal">
+                <ul class="nav nav-tabs mb-4 border-bottom" id="weeklyTabs" role="tablist">
+                    <li class="nav-item"><button class="nav-link active fw-bold" onclick="selectWeek('semana1')"><i class="bi bi-1-circle me-1"></i> Semana 1</button></li>
+                    <li class="nav-item"><button class="nav-link fw-bold" onclick="selectWeek('semana2')"><i class="bi bi-2-circle me-1"></i> Semana 2</button></li>
+                    <li class="nav-item"><button class="nav-link fw-bold" onclick="selectWeek('semana3')"><i class="bi bi-3-circle me-1"></i> Semana 3</button></li>
+                    <li class="nav-item"><button class="nav-link fw-bold" onclick="selectWeek('semana4')"><i class="bi bi-4-circle me-1"></i> Semana 4</button></li>
+                </ul>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="card p-3 text-center bg-success-subtle text-success border-0 shadow-sm">
+                            <small class="fw-semibold text-uppercase opacity-75" id="weekBudgetTitle">Presupuesto Semana 1</small>
+                            <h3 class="fw-bold mb-0 my-1" id="weekBudget">$0</h3>
+                            <button class="btn btn-link text-success btn-sm p-0 text-decoration-none fw-semibold" onclick="changeWeeklyBudget()"><i class="bi bi-pencil-square"></i> Cambiar</button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card p-3 text-center bg-primary-subtle text-primary border-0 shadow-sm">
+                            <small class="fw-semibold text-uppercase opacity-75">Total Compras</small>
+                            <h3 class="fw-bold mb-0 my-1" id="weekTotal">$0</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card p-3 text-center bg-warning-subtle text-warning-emphasis border-0 shadow-sm">
+                            <small class="fw-semibold text-uppercase opacity-75">Restante Semana</small>
+                            <h3 class="fw-bold mb-0 my-1" id="weekRemaining">$0</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                    <h5 class="fw-bold mb-0 text-secondary" id="weekTableTitle"><i class="bi bi-calendar-check me-2"></i>Compras - Semana 1</h5>
+                    <button class="btn btn-success fw-semibold px-4 rounded-pill shadow-sm" onclick="openAddWeeklyModal()"><i class="bi bi-plus-lg me-1"></i> Agregar Ítem Semanal</button>
+                </div>
+
+                <div class="card overflow-hidden">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 120px;" class="ps-3">COMPRA</th>
+                                        <th>PRODUCTO / ÍTEM</th>
+                                        <th class="text-end">P.U ($)</th>
+                                        <th class="text-center">CANT.</th>
+                                        <th class="text-end">TOTAL ($)</th>
+                                        <th class="text-center pe-3" style="width: 100px;">ACCIONES</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableWeeklyBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Modales -->
+    <div class="modal fade" id="genProductModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold text-success" id="genModalTitle">Producto General</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="genProdIndex">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Concepto / Producto</label>
+                        <input type="text" class="form-control" id="genConcept" placeholder="Ej. Crema dental" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Área / Categoría</label>
+                        <input type="text" class="form-control" id="genArea" placeholder="Ej. Aseo Personal, Cocina..." required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Precio Unitario ($)</label>
+                            <input type="number" class="form-control" id="genPrice" min="0" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Cantidad</label>
+                            <input type="number" class="form-control" id="genQty" min="1" value="1" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Estado</label>
+                        <select class="form-select" id="genStatus">
+                            <option value="NO">NO (Pendiente)</option>
+                            <option value="SI">SI (Comprado)</option>
+                            <option value="YA">YA (Ya se tiene)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success rounded-pill px-4" onclick="saveGeneralProduct()">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="weekProductModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold text-success" id="weekModalTitle">Producto Semanal</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="weekProdIndex">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Producto / Ítem</label>
+                        <input type="text" class="form-control" id="weekConcept" placeholder="Ej. Papa, Tomate..." required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Precio Unitario ($)</label>
+                            <input type="number" class="form-control" id="weekPrice" min="0" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Cantidad</label>
+                            <input type="number" class="form-control" id="weekQty" min="1" value="1" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Estado de Compra</label>
+                        <select class="form-select" id="weekStatus">
+                            <option value="NO">NO (Pendiente)</option>
+                            <option value="SI">SI (Comprado)</option>
+                            <option value="PDT">PDT (Pendiente tomar)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success rounded-pill px-4" onclick="saveWeeklyProduct()">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script type="module" src="mercado.js"></script>
+</body>
+</html>
