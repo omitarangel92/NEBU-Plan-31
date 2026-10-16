@@ -1,0 +1,71 @@
+.app-navbar {
+  background-color: var(--bs-body-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+.app-navbar-inner {
+  --bs-gutter-x: 1.5rem;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.app-navbar-brand {
+  min-width: 0;
+  margin-right: 0;
+  color: var(--bs-success) !important;
+  font-weight: 700;
+}
+
+.app-navbar-brand>span {
+  font-size: 1.25rem;
+}
+
+.app-navbar-actions {
+  flex: 0 0 auto;
+}
+
+.app-navbar-link {
+  white-space: nowrap;
+}
+
+.app-navbar .app-navbar-link {
+  min-height: 40px;
+  padding: 0.45rem 0.85rem !important;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  align-content: center;
+}
+
+.app-navbar-theme {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 !important;
+  font-size: 0.875rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  text-align: center;
+}
+
+@media (max-width: 575.98px) {
+  .app-navbar-inner {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+
+  .app-navbar-brand {
+    flex: 0 0 100%;
+  }
+
+  .app-navbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

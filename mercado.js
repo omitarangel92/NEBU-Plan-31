@@ -19,7 +19,7 @@ const sharedMarketRef = doc(db, "sharedData", "marketCompleteData");
 
 // Lista completa de productos
 const defaultMarketState = {
-  generalBudget: 500000,
+  generalBudget: 400000,
   theme: "light",
   generalItems: [
     {"status": "NO", "concept": "Bolsas de basura", "area": "Aseo Casita", "price": 1900, "qty": 1},
@@ -175,6 +175,7 @@ window.marketState = JSON.parse(JSON.stringify(defaultMarketState));
 
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
+  initBackToTop();
 });
 
 signInAnonymously(auth);
@@ -225,6 +226,25 @@ function initThemeToggle() {
 function updateThemeIcon(theme, iconElement) {
   if (!iconElement) return;
   iconElement.className = theme === "dark" ? "bi bi-sun-fill text-warning" : "bi bi-moon-stars-fill";
+}
+
+function initBackToTop() {
+  const button = document.getElementById("backToTop");
+  if (!button) return;
+
+  const updateVisibility = () => {
+    button.hidden = window.scrollY < 400;
+  };
+
+  window.addEventListener("scroll", updateVisibility, { passive: true });
+  button.addEventListener("click", () => {
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
+    window.scrollTo({ top: 0, behavior });
+  });
+
+  updateVisibility();
 }
 
 /* --- RENDERIZADO Y FILTROS --- */
