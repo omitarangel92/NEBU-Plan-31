@@ -17,6 +17,7 @@ const auth = getAuth(app);
 
 const sharedMarketRef = doc(db, "sharedData", "marketCompleteData");
 
+// Lista completa de productos
 const defaultMarketState = {
   generalBudget: 500000,
   theme: "light",
@@ -167,49 +168,10 @@ const defaultMarketState = {
     {"status": "NO", "concept": "Antojitos", "area": "General", "price": 3400, "qty": 1},
     {"status": "YA", "concept": "Salsa Boloñesa", "area": "Salsas", "price": 2600, "qty": 1},
     {"status": "YA", "concept": "Salsa Bechamel", "area": "Salsas", "price": 2850, "qty": 1}
-  ],
-  weekly: {
-    semana1: {
-      budget: 32000,
-      items: [
-        {"status": "SI", "concept": "Papa", "price": 530, "qty": 2},
-        {"status": "SI", "concept": "Zanahoria", "price": 800, "qty": 2},
-        {"status": "SI", "concept": "Maduro", "price": 1800, "qty": 1},
-        {"status": "NO", "concept": "Frutiño", "price": 1000, "qty": 1}
-      ]
-    },
-    semana2: {
-      budget: 21000,
-      items: [
-        {"status": "NO", "concept": "Lo mismo del Domingo", "price": 0, "qty": 1}
-      ]
-    },
-    semana3: {
-      budget: 40000,
-      items: [
-        {"status": "SI", "concept": "Papa pareja grande", "price": 1234, "qty": 1},
-        {"status": "SI", "concept": "Tomate", "price": 722, "qty": 1},
-        {"status": "SI", "concept": "Jugo de limon", "price": 352, "qty": 1},
-        {"status": "SI", "concept": "Maduro", "price": 1267, "qty": 1},
-        {"status": "PDT", "concept": "Pepino", "price": 1892, "qty": 1}
-      ]
-    },
-    semana4: {
-      budget: 40000,
-      items: [
-        {"status": "SI", "concept": "Lechuga", "price": 3000, "qty": 1},
-        {"status": "SI", "concept": "Zanahoria", "price": 600, "qty": 2},
-        {"status": "SI", "concept": "Aguacate", "price": 3000, "qty": 1},
-        {"status": "SI", "concept": "Tomate", "price": 1200, "qty": 1},
-        {"status": "SI", "concept": "Papa", "price": 2000, "qty": 1},
-        {"status": "NO", "concept": "Pulpa", "price": 0, "qty": 1}
-      ]
-    }
-  }
+  ]
 };
 
 window.marketState = JSON.parse(JSON.stringify(defaultMarketState));
-let activeWeek = "semana1";
 
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
@@ -219,7 +181,13 @@ signInAnonymously(auth);
 
 onSnapshot(sharedMarketRef, (docSnap) => {
   if (docSnap.exists()) {
-    window.marketState = docSnap.data().data || defaultMarketState;
+    const cloudData = docSnap.data().data;
+    if (cloudData && Array.isArray(cloudData.generalItems) && cloudData.generalItems.length >= 100) {
+      window.marketState = cloudData;
+    } else {
+      window.marketState = defaultMarketState;
+      saveData();
+    }
     if (window.marketState.theme) {
       document.documentElement.setAttribute("data-bs-theme", window.marketState.theme);
       localStorage.setItem("fitplan_theme", window.marketState.theme);
@@ -229,9 +197,9 @@ onSnapshot(sharedMarketRef, (docSnap) => {
     setDoc(sharedMarketRef, { data: defaultMarketState });
   }
   renderGeneralTable();
-  renderWeeklyTable();
 });
 
+/* --- TEMA CLARO / OSCURO --- */
 function initThemeToggle() {
   const toggleBtn = document.getElementById("themeToggle");
   const themeIcon = document.getElementById("themeIcon");
@@ -259,6 +227,7 @@ function updateThemeIcon(theme, iconElement) {
   iconElement.className = theme === "dark" ? "bi bi-sun-fill text-warning" : "bi bi-moon-stars-fill";
 }
 
+/* --- RENDERIZADO Y FILTROS --- */
 window.filterGeneralTable = function() {
   renderGeneralTable();
 };
@@ -268,18 +237,20 @@ function renderGeneralTable() {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  const searchText = document.getElementById("searchConcept").value.toLowerCase();
-  const statusFilter = document.getElementById("filterStatus").value;
-  const areaFilter = document.getElementById("filterArea").value;
+  const searchText = (document.getElementById("searchConcept")?.value || "").toLowerCase();
+  const statusFilter = document.getElementById("filterStatus")?.value || "";
+  const areaFilter = document.getElementById("filterArea")?.value || "";
 
   let fullSpent = 0;
   window.marketState.generalItems.forEach(i => fullSpent += (i.price * i.qty));
 
+  let visibleCount = 0;
   window.marketState.generalItems.forEach((item, index) => {
     if (searchText && !item.concept.toLowerCase().includes(searchText)) return;
     if (statusFilter && item.status !== statusFilter) return;
     if (areaFilter && item.area !== areaFilter) return;
 
+    visibleCount++;
     const total = item.price * item.qty;
 
     const tr = document.createElement("tr");
@@ -306,6 +277,9 @@ function renderGeneralTable() {
 
   const budget = window.marketState.generalBudget || 500000;
   const remaining = budget - fullSpent;
+
+  const countTitle = document.getElementById("itemCountTitle");
+  if (countTitle) countTitle.textContent = `Lista Completa (${visibleCount} Ítems)`;
 
   document.getElementById("genBudget").textContent = `$${budget.toLocaleString("es-CO")}`;
   document.getElementById("genTotal").textContent = `$${fullSpent.toLocaleString("es-CO")}`;
@@ -395,130 +369,19 @@ window.changeGeneralBudget = function() {
   });
 };
 
-window.selectWeek = function(weekKey) {
-  activeWeek = weekKey;
-  renderWeeklyTable();
-};
-
-function renderWeeklyTable() {
-  const tbody = document.getElementById("tableWeeklyBody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-
-  const weekData = window.marketState.weekly[activeWeek] || { budget: 0, items: [] };
-  let totalSpent = 0;
-
-  weekData.items.forEach((item, index) => {
-    const total = item.price * item.qty;
-    totalSpent += total;
-
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td class="ps-3">
-        <select class="form-select form-select-sm fw-semibold" onchange="updateWeeklyStatus(${index}, this.value)">
-          <option value="NO" ${item.status === "NO" ? "selected" : ""}>NO</option>
-          <option value="SI" ${item.status === "SI" ? "selected" : ""}>SI</option>
-          <option value="PDT" ${item.status === "PDT" ? "selected" : ""}>PDT</option>
-        </select>
-      </td>
-      <td class="fw-semibold">${item.concept}</td>
-      <td class="text-end">$${item.price.toLocaleString("es-CO")}</td>
-      <td class="text-center">${item.qty}</td>
-      <td class="text-end fw-bold">$${total.toLocaleString("es-CO")}</td>
-      <td class="text-center pe-3">
-        <button class="btn btn-sm btn-link text-primary p-0 me-2" onclick="openEditWeeklyModal(${index})"><i class="bi bi-pencil-fill fs-6"></i></button>
-        <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteWeeklyItem(${index})"><i class="bi bi-trash-fill fs-6"></i></button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  const remaining = weekData.budget - totalSpent;
-  const numWeek = activeWeek.replace("semana", "");
-
-  document.getElementById("weekBudgetTitle").textContent = `Presupuesto Semana ${numWeek}`;
-  document.getElementById("weekTableTitle").innerHTML = `<i class="bi bi-calendar-check me-2"></i>Compras - Semana ${numWeek}`;
-  document.getElementById("weekBudget").textContent = `$${weekData.budget.toLocaleString("es-CO")}`;
-  document.getElementById("weekTotal").textContent = `$${totalSpent.toLocaleString("es-CO")}`;
-  document.getElementById("weekRemaining").textContent = `$${remaining.toLocaleString("es-CO")}`;
-}
-
-window.updateWeeklyStatus = function(index, val) {
-  window.marketState.weekly[activeWeek].items[index].status = val;
-  saveData();
-};
-
-window.openAddWeeklyModal = function() {
-  document.getElementById("weekModalTitle").textContent = `Agregar Producto - ${activeWeek.toUpperCase()}`;
-  document.getElementById("weekProdIndex").value = "";
-  document.getElementById("weekConcept").value = "";
-  document.getElementById("weekPrice").value = "";
-  document.getElementById("weekQty").value = "1";
-  document.getElementById("weekStatus").value = "NO";
-  new bootstrap.Modal(document.getElementById("weekProductModal")).show();
-};
-
-window.openEditWeeklyModal = function(index) {
-  const item = window.marketState.weekly[activeWeek].items[index];
-  document.getElementById("weekModalTitle").textContent = "Editar Producto Semanal";
-  document.getElementById("weekProdIndex").value = index;
-  document.getElementById("weekConcept").value = item.concept;
-  document.getElementById("weekPrice").value = item.price;
-  document.getElementById("weekQty").value = item.qty;
-  document.getElementById("weekStatus").value = item.status;
-  new bootstrap.Modal(document.getElementById("weekProductModal")).show();
-};
-
-window.saveWeeklyProduct = function() {
-  const idx = document.getElementById("weekProdIndex").value;
-  const concept = document.getElementById("weekConcept").value;
-  const price = Number(document.getElementById("weekPrice").value) || 0;
-  const qty = Number(document.getElementById("weekQty").value) || 1;
-  const status = document.getElementById("weekStatus").value;
-
-  if(!concept) {
-    Swal.fire({icon: 'warning', title: 'Atención', text: 'El concepto del producto es obligatorio.'});
-    return;
-  }
-
-  const newItem = { status, concept, price, qty };
-  if (idx === "") window.marketState.weekly[activeWeek].items.push(newItem);
-  else window.marketState.weekly[activeWeek].items[idx] = newItem;
-
-  saveData();
-  bootstrap.Modal.getInstance(document.getElementById("weekProductModal")).hide();
-};
-
-window.deleteWeeklyItem = function(index) {
+window.restoreFullList = function() {
   Swal.fire({
-    title: '¿Eliminar ítem semanal?',
-    text: "Esta acción no se puede deshacer",
-    icon: 'warning',
+    title: '¿Restablecer lista completa?',
+    text: "Se recargarán los 145+ productos originales en la base de datos.",
+    icon: 'question',
     showCancelButton: true,
-    confirmButtonColor: '#d33',
-    cancelButtonColor: '#3085d6',
-    confirmButtonText: 'Sí, eliminar',
+    confirmButtonText: 'Sí, restablecer',
     cancelButtonText: 'Cancelar'
-  }).then((result) => {
-    if (result.isConfirmed) {
-      window.marketState.weekly[activeWeek].items.splice(index, 1);
-      saveData();
-    }
-  });
-};
-
-window.changeWeeklyBudget = function() {
-  Swal.fire({
-    title: `Presupuesto ${activeWeek.toUpperCase()}`,
-    input: "number",
-    inputValue: window.marketState.weekly[activeWeek].budget,
-    showCancelButton: true,
-    confirmButtonText: "Guardar",
-    cancelButtonText: "Cancelar"
   }).then((res) => {
-    if (res.isConfirmed && res.value) {
-      window.marketState.weekly[activeWeek].budget = Number(res.value);
+    if (res.isConfirmed) {
+      window.marketState = JSON.parse(JSON.stringify(defaultMarketState));
       saveData();
+      Swal.fire('Restablecido', 'Lista completa recuperada con éxito', 'success');
     }
   });
 };
