@@ -30,6 +30,11 @@
   outline-offset: 3px;
 }
 
+.mobile-product-summary,
+.mobile-product-details {
+  display: none;
+}
+
 @media (max-width: 768px) {
   #marketAppSection .container.mt-4 {
     --bs-gutter-x: 1.1rem;
@@ -222,12 +227,171 @@
 
   #marketAppSection .table tbody tr {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     overflow: hidden;
     border: 1px solid rgba(var(--bs-success-rgb), 0.14);
     border-radius: 1rem;
     background: var(--bs-body-bg);
     box-shadow: 0 5px 16px rgba(22, 54, 41, 0.07);
+  }
+
+  #marketAppSection .table tbody tr > td:not(.mobile-product-summary):not(.mobile-product-details) {
+    display: none;
+  }
+
+  #marketAppSection .table tbody td.mobile-product-summary,
+  #marketAppSection .table tbody tr.is-expanded td.mobile-product-details {
+    display: block;
+    grid-column: 1 / -1;
+    min-width: 0;
+    padding: 0.75rem 0.85rem;
+    border: 0;
+  }
+
+  #marketAppSection .table tbody td.mobile-product-summary::before,
+  #marketAppSection .table tbody td.mobile-product-details::before {
+    display: none;
+  }
+
+  .mobile-product-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 2.5rem;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .mobile-product-main > strong {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--bs-body-color);
+    font-size: 0.98rem;
+    font-weight: 650;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .mobile-product-more {
+    display: inline-flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    background: var(--bs-body-bg);
+    color: var(--bs-secondary-color);
+    font-size: 1.25rem;
+  }
+
+  .mobile-product-more:focus-visible {
+    outline: 3px solid rgba(var(--bs-success-rgb), 0.45);
+    outline-offset: 2px;
+  }
+
+  .mobile-product-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+    margin-top: 0.7rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--bs-border-color-translucent);
+  }
+
+  .mobile-product-meta > span {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+
+  .mobile-product-meta > span:last-child {
+    justify-content: flex-end;
+  }
+
+  .mobile-product-meta small {
+    color: var(--bs-secondary-color);
+    font-size: 0.72rem;
+  }
+
+  .mobile-product-meta strong {
+    color: var(--bs-body-color);
+    font-size: 0.87rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  #marketAppSection .table tbody tr.is-expanded td.mobile-product-summary {
+    padding-bottom: 0.65rem;
+  }
+
+  #marketAppSection .table tbody tr.is-expanded td.mobile-product-details {
+    padding-top: 0;
+  }
+
+  .mobile-product-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border: 1px solid var(--bs-border-color-translucent);
+    border-radius: 0.75rem;
+    overflow: hidden;
+  }
+
+  .mobile-product-detail-field {
+    display: flex;
+    min-width: 0;
+    min-height: 4rem;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.3rem;
+    padding: 0.55rem 0.65rem;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-product-detail-field:nth-child(odd) {
+    border-right: 1px solid var(--bs-border-color-translucent);
+  }
+
+  .mobile-product-detail-field:nth-child(n + 3) {
+    border-top: 1px solid var(--bs-border-color-translucent);
+  }
+
+  .mobile-product-detail-field > span:first-child {
+    color: var(--bs-secondary-color);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.035em;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .mobile-product-detail-field > strong {
+    font-size: 0.84rem;
+    font-weight: 550;
+  }
+
+  .mobile-product-detail-field .form-select {
+    width: auto;
+    min-width: 5rem;
+    min-height: 36px;
+    padding: 0.3rem 1.7rem 0.3rem 0.55rem;
+    font-size: 0.8rem;
+  }
+
+  .mobile-product-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem;
+    margin-top: 0.65rem;
+  }
+
+  .mobile-product-actions .btn {
+    min-height: 40px;
+    padding: 0.4rem 0.55rem !important;
+    font-size: 0.78rem;
   }
 
   #marketAppSection .table tbody td {
@@ -319,11 +483,48 @@
     margin-right: auto;
   }
 
+  #marketAppSection .table tbody tr > td:not(.mobile-product-summary):not(.mobile-product-details) {
+    display: none !important;
+  }
+
+  #marketAppSection .table tbody td.mobile-product-details {
+    display: none;
+  }
+
+  #marketAppSection .table tbody td.mobile-product-summary,
+  #marketAppSection .table tbody tr.is-expanded td.mobile-product-details {
+    display: block;
+    grid-column: 1 / -1;
+    padding: 0.75rem 0.85rem;
+    border: 0;
+    text-align: left !important;
+  }
+
+  #marketAppSection .table tbody td.mobile-product-summary::before,
+  #marketAppSection .table tbody td.mobile-product-details::before {
+    display: none;
+  }
+
+  #marketAppSection .table tbody tr.is-expanded td.mobile-product-summary {
+    padding-bottom: 0.65rem;
+  }
+
+  #marketAppSection .table tbody tr.is-expanded td.mobile-product-details {
+    padding-top: 0;
+  }
+
   #marketAppSection .table .btn {
     min-width: 40px;
     min-height: 40px;
     padding: 0.4rem !important;
     font-size: 0.85rem;
+  }
+
+  .mobile-product-actions .btn {
+    min-width: 0;
+    min-height: 40px;
+    padding: 0.4rem 0.55rem !important;
+    font-size: 0.78rem;
   }
 
   #marketAppSection .modal-dialog {

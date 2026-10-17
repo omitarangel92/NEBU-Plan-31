@@ -710,6 +710,55 @@ function renderGeneralTable() {
         <button class="btn btn-sm btn-link text-primary p-0 me-2" aria-label="Editar ${escapeHtml(item.concept)}" onclick="openEditGeneralModal(${index})"><i class="bi bi-pencil-fill fs-6"></i></button>
         <button class="btn btn-sm btn-link text-danger p-0" aria-label="Eliminar ${escapeHtml(item.concept)}" onclick="deleteGeneralItem(${index})"><i class="bi bi-trash-fill fs-6"></i></button>
       </td>
+      <td class="mobile-product-summary" colspan="8">
+        <div class="mobile-product-main">
+          <strong>${escapeHtml(item.concept)}</strong>
+          <button class="mobile-product-more" type="button" aria-expanded="false"
+            aria-label="Ver detalles de ${escapeHtml(item.concept)}"
+            onclick="toggleMarketProductDetails(this)">
+            <i class="bi bi-three-dots" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="mobile-product-meta">
+          <span><small>Cantidad</small><strong>${escapeHtml(item.qty)}</strong></span>
+          <span><small>Total</small><strong>$${total.toLocaleString("es-CO")}</strong></span>
+        </div>
+      </td>
+      <td class="mobile-product-details" colspan="8">
+        <div class="mobile-product-detail-grid">
+          <div class="mobile-product-detail-field">
+            <span>Estado</span>
+            <select class="form-select form-select-sm fw-semibold" aria-label="Estado de ${escapeHtml(item.concept)}"
+              onchange="updateGenStatus(${index}, this.value)">
+              <option value="NO" ${item.status === "NO" ? "selected" : ""}>NO</option>
+              <option value="SI" ${item.status === "SI" ? "selected" : ""}>SI</option>
+              <option value="YA" ${item.status === "YA" ? "selected" : ""}>YA</option>
+            </select>
+          </div>
+          <div class="mobile-product-detail-field">
+            <span>Área</span>
+            <span class="badge bg-secondary-subtle text-secondary border">${escapeHtml(item.area)}</span>
+          </div>
+          <div class="mobile-product-detail-field">
+            <span>Lugar de compra</span>
+            <strong>${escapeHtml(item.place || "—")}</strong>
+          </div>
+          <div class="mobile-product-detail-field">
+            <span>Precio unitario</span>
+            <strong>$${item.price.toLocaleString("es-CO")}</strong>
+          </div>
+        </div>
+        <div class="mobile-product-actions">
+          <button class="btn btn-sm btn-outline-primary" type="button"
+            aria-label="Editar ${escapeHtml(item.concept)}" onclick="openEditGeneralModal(${index})">
+            <i class="bi bi-pencil-fill me-1" aria-hidden="true"></i>Editar
+          </button>
+          <button class="btn btn-sm btn-outline-danger" type="button"
+            aria-label="Eliminar ${escapeHtml(item.concept)}" onclick="deleteGeneralItem(${index})">
+            <i class="bi bi-trash-fill me-1" aria-hidden="true"></i>Eliminar
+          </button>
+        </div>
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -728,6 +777,17 @@ function renderGeneralTable() {
   document.getElementById("siTotalCard").hidden = statusFilter !== "SI";
   renderCatalogLists();
 }
+
+window.toggleMarketProductDetails = function(button) {
+  const row = button.closest("tr");
+  const expanded = row.classList.toggle("is-expanded");
+  button.setAttribute("aria-expanded", String(expanded));
+  button.setAttribute(
+    "aria-label",
+    `${expanded ? "Ocultar" : "Ver"} detalles de ${row.querySelector(".mobile-product-main strong").textContent}`
+  );
+  button.innerHTML = `<i class="bi ${expanded ? "bi-three-dots-vertical" : "bi-three-dots"}" aria-hidden="true"></i>`;
+};
 
 function calculateTotalForStatuses(items, statuses) {
   return items.reduce((total, item) => {
