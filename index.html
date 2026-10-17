@@ -17,9 +17,13 @@
         <div class="auth-card card shadow-sm border-0">
             <div class="card-body p-4 p-md-5">
                 <h1 id="authTitle" class="h4 fw-bold text-success mb-2">NEBU Fit30</h1>
-                <p class="text-secondary mb-4">Inicia sesión para acceder al plan compartido.</p>
+                <p id="authIntro" class="text-secondary mb-4" hidden>Inicia sesión para acceder al plan compartido.</p>
+                <div id="authLoading" class="auth-loading" role="status" aria-live="polite">
+                    <span class="spinner-border spinner-border-sm text-success" aria-hidden="true"></span>
+                    <span>Comprobando tu sesión...</span>
+                </div>
                 <p id="authMessage" class="small text-danger" role="status" aria-live="polite"></p>
-                <form id="loginPanel" onsubmit="loginWithEmail(event)">
+                <form id="loginPanel" onsubmit="loginWithEmail(event)" hidden>
                     <div class="mb-3">
                         <label class="form-label" for="authEmail">Correo autorizado</label>
                         <input id="authEmail" class="form-control" type="email" autocomplete="username" required>
@@ -30,7 +34,7 @@
                     </div>
                     <button class="btn btn-success w-100" type="submit">Iniciar sesión</button>
                 </form>
-                <button class="btn btn-link btn-sm px-0 mt-2" type="button" onclick="sendPasswordReset()">
+                <button id="passwordResetButton" class="btn btn-link btn-sm px-0 mt-2" type="button" onclick="sendPasswordReset()" hidden>
                     Olvidé mi contraseña
                 </button>
                 <div id="verifyPanel" hidden>
@@ -62,8 +66,9 @@
         <div class="container mt-4">
             <!-- Selector de Días -->
             <div class="mb-4">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 plan-tools-heading">
-                    <label class="form-label fw-bold text-secondary mb-2"><i class="bi bi-calendar3 me-1"></i> Selecciona el Día del Plan:</label>
+                <div class="plan-tools">
+                    <label class="form-label fw-bold text-secondary mb-1" for="daySelector"><i class="bi bi-calendar3 me-1"></i> Selecciona el día del plan</label>
+                    <div class="day-selector-container" id="daySelector"></div>
                     <div class="d-flex flex-wrap gap-2 plan-tools-actions">
                         <button class="btn btn-outline-success btn-sm" type="button" onclick="showRecentActivity()">
                             <i class="bi bi-clock-history me-1"></i> Cambios recientes
@@ -78,7 +83,6 @@
                             onchange="restoreAppBackup(event)">
                     </div>
                 </div>
-                <div class="day-selector-container" id="daySelector"></div>
             </div>
 
             <!-- Panel Nutricional -->

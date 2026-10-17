@@ -18,3 +18,20 @@
 #authMessage:empty {
   display: none;
 }
+
+.auth-loading {
+  display: flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--bs-secondary-color);
+  font-size: 0.9rem;
+}
+
+.auth-loading[hidden],
+#loginPanel[hidden],
+#verifyPanel[hidden],
+#passwordResetButton[hidden],
+#authIntro[hidden] {
+  display: none !important;
+}

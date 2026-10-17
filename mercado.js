@@ -381,8 +381,17 @@ async function handleMarketAuthState(user) {
 function showMarketAuthGate(mode, message = "") {
   document.getElementById("authGate").hidden = false;
   document.getElementById("marketAppSection").hidden = true;
+  const loading = document.getElementById("authLoading");
+  const intro = document.getElementById("authIntro");
+  const resetButton = document.getElementById("passwordResetButton");
+  if (loading) loading.hidden = true;
+  if (intro) {
+    intro.hidden = mode !== "login";
+    intro.textContent = "Inicia sesión para acceder a la lista compartida.";
+  }
   document.getElementById("loginPanel").hidden = mode !== "login";
   document.getElementById("verifyPanel").hidden = mode !== "verify";
+  if (resetButton) resetButton.hidden = mode !== "login";
   const authMessage = document.getElementById("authMessage");
   authMessage.textContent = message;
   authMessage.classList.remove("text-success");

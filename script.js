@@ -210,8 +210,17 @@ function showAuthGate(mode, message = "") {
   const appSection = document.getElementById("appSection");
   if (gate) gate.hidden = false;
   if (appSection) appSection.hidden = true;
+  const loading = document.getElementById("authLoading");
+  const intro = document.getElementById("authIntro");
+  const resetButton = document.getElementById("passwordResetButton");
+  if (loading) loading.hidden = true;
+  if (intro) {
+    intro.hidden = mode !== "login";
+    intro.textContent = "Inicia sesión para acceder al plan compartido.";
+  }
   document.getElementById("loginPanel").hidden = mode !== "login";
   document.getElementById("verifyPanel").hidden = mode !== "verify";
+  if (resetButton) resetButton.hidden = mode !== "login";
   const authMessage = document.getElementById("authMessage");
   authMessage.textContent = message;
   authMessage.classList.remove("text-success");
