@@ -93,6 +93,16 @@ body {
   color: var(--text-color);
 }
 
+.calories-chart-container {
+  width: 100%;
+  max-width: 150px;
+  margin: 0 auto;
+}
+
+#caloriesChart {
+  max-width: 100%;
+}
+
 .macro-box {
   background-color: var(--bg-box);
   border-color: var(--border-color) !important;
@@ -209,13 +219,227 @@ body {
   filter: invert(1) grayscale(100%) brightness(200%);
 }
 
-@media (max-width: 420px) {
+@media (max-width: 767.98px) {
   .macro-card .row.g-2 > .col-3 {
     flex: 0 0 50%;
     width: 50%;
   }
 
+  .plan-tools-heading {
+    align-items: flex-start !important;
+    gap: 0.35rem !important;
+  }
+
+  .plan-tools-heading > .form-label {
+    margin-bottom: 0.2rem !important;
+    font-size: 0.88rem;
+  }
+
+  .plan-tools-actions {
+    display: grid !important;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem !important;
+  }
+
+  .plan-tools-actions .btn {
+    display: flex;
+    min-width: 0;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: 0.4rem 0.25rem !important;
+    font-size: 0.66rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .plan-tools-actions .btn i {
+    flex: 0 0 auto;
+  }
+
+  .day-selector-container {
+    margin-inline: -0.15rem;
+    padding: 0.55rem 0 0.4rem;
+  }
+
+  .btn-day {
+    min-width: 3.8rem;
+    min-height: 40px;
+    margin-right: 0.35rem;
+    border-radius: 0.8rem;
+    font-size: 0.78rem;
+  }
+
+  .plan-nutrition-grid {
+    --bs-gutter-y: 0.75rem;
+    margin-bottom: 1rem !important;
+  }
+
+  .plan-nutrition-grid > [class*="col-"] {
+    width: 100%;
+  }
+
+  .plan-nutrition-grid .macro-card {
+    padding: 1rem !important;
+    border-radius: 1rem;
+  }
+
+  .calorie-summary-card > .d-flex {
+    align-items: flex-start !important;
+  }
+
+  .calorie-summary-card > .d-flex h6 {
+    font-size: 0.9rem;
+  }
+
+  .calorie-summary-card > .d-flex .btn {
+    min-height: 36px;
+    padding: 0.3rem 0.45rem !important;
+    border-radius: 0.65rem;
+    background: var(--bg-box);
+    font-size: 0.76rem;
+    white-space: nowrap;
+  }
+
+  .calorie-summary-card #caloriesChart {
+    max-height: 130px;
+  }
+
+  .macros-summary-card > div:first-child > h6 {
+    margin-bottom: 0.65rem !important;
+    font-size: 0.9rem;
+  }
+
+  .macro-card .row.g-2 {
+    --bs-gutter-x: 0.55rem;
+    --bs-gutter-y: 0.55rem;
+  }
+
+  .macro-card .row.g-2 .macro-box {
+    min-height: 4rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.1rem;
+    border-radius: 0.75rem !important;
+  }
+
+  .macro-card .row.g-2 .macro-box small {
+    font-size: 0.7rem;
+  }
+
+  .macro-card .row.g-2 .macro-box strong {
+    font-size: 1rem !important;
+  }
+
+  .plan-meals-heading {
+    margin-top: 0.2rem;
+    margin-bottom: 0.7rem !important;
+  }
+
   #selectedDayTitle {
-    font-size: 1rem;
+    font-size: 1.05rem;
+  }
+
+  .meal-accordion {
+    display: grid;
+    gap: 0.65rem;
+  }
+
+  .meal-accordion .accordion-item {
+    margin: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 1rem !important;
+    box-shadow: 0 5px 16px rgba(26, 48, 38, 0.06);
+  }
+
+  .meal-accordion .accordion-header {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 2.8rem;
+    align-items: stretch;
+  }
+
+  .meal-accordion .accordion-button {
+    min-width: 0;
+    padding: 0.8rem 2.5rem 0.8rem 0.85rem;
+    font-size: 0.94rem;
+    line-height: 1.35;
+  }
+
+  .meal-accordion .accordion-button::after {
+    position: absolute;
+    right: 0.8rem;
+    width: 0.9rem;
+    height: 0.9rem;
+    background-size: 0.9rem;
+  }
+
+  .meal-accordion .accordion-button > .d-flex {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch !important;
+    gap: 0.5rem;
+    padding-right: 0 !important;
+  }
+
+  .meal-accordion .accordion-button > .d-flex > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .meal-accordion .meal-title {
+    font-size: 0.94rem;
+    line-height: 1.35;
+  }
+
+  .meal-accordion .badge-time {
+    width: fit-content;
+    max-width: 100%;
+    margin-left: 0;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.6rem;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  .meal-accordion .accordion-header > .btn[data-edit-meal] {
+    display: flex;
+    width: 2.8rem;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 !important;
+    border-radius: 0;
+  }
+
+  .meal-accordion .accordion-body {
+    padding: 0.9rem;
+    font-size: 0.9rem;
+  }
+
+  .meal-accordion .accordion-body .form-check {
+    padding: 0.65rem 0.65rem 0.65rem 1.9rem;
+    border-radius: 0.75rem;
+    background: var(--bg-box);
+  }
+
+  .meal-accordion .prep-box {
+    line-height: 1.55;
+  }
+
+  .meal-accordion .table-responsive {
+    overflow-x: auto;
+    border-radius: 0.65rem;
+  }
+
+  #planSyncStatus {
+    margin-top: 0.9rem !important;
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.65rem;
+    background: var(--bg-box);
+    font-size: 0.78rem;
   }
 }

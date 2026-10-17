@@ -62,9 +62,9 @@
         <div class="container mt-4">
             <!-- Selector de Días -->
             <div class="mb-4">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 plan-tools-heading">
                     <label class="form-label fw-bold text-secondary mb-2"><i class="bi bi-calendar3 me-1"></i> Selecciona el Día del Plan:</label>
-                    <div class="d-flex flex-wrap gap-2">
+                    <div class="d-flex flex-wrap gap-2 plan-tools-actions">
                         <button class="btn btn-outline-success btn-sm" type="button" onclick="showRecentActivity()">
                             <i class="bi bi-clock-history me-1"></i> Cambios recientes
                         </button>
@@ -82,23 +82,23 @@
             </div>
 
             <!-- Panel Nutricional -->
-            <div class="row g-3 mb-4">
+            <div class="row g-3 mb-4 plan-nutrition-grid">
                 <div class="col-lg-4 col-md-5">
-                    <div class="macro-card text-center h-100 d-flex flex-column justify-content-center py-4">
+                    <div class="macro-card calorie-summary-card text-center h-100 d-flex flex-column justify-content-center py-4">
                         <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
                             <h6 class="text-muted mb-0 fw-semibold">Resumen de calorías</h6>
                             <button class="btn btn-link btn-sm p-0" type="button" onclick="setDailyCalorieGoal()">
                                 Meta: <strong id="dailyCalorieGoal">2.000</strong> kcal
                             </button>
                         </div>
-                        <div style="max-width: 150px; margin: 0 auto;"><canvas id="caloriesChart"></canvas></div>
+                        <div class="calories-chart-container"><canvas id="caloriesChart"></canvas></div>
                         <p class="small text-muted mt-2 mb-0">Consumidas: <strong id="consumedCalories">0</strong> kcal</p>
                         <h3 class="mt-2 fw-bold mb-0 text-success" id="totalCalories">0 kcal</h3>
                         <small class="text-muted">Total de calorías del plan</small>
                     </div>
                 </div>
                 <div class="col-lg-8 col-md-7">
-                    <div class="macro-card h-100 d-flex flex-column justify-content-between p-4">
+                    <div class="macro-card macros-summary-card h-100 d-flex flex-column justify-content-between p-4">
                         <div>
                             <h6 class="text-muted mb-3 fw-semibold">Desglose de Macronutrientes</h6>
                             <div class="row g-2 text-center">
@@ -116,7 +116,7 @@
                 </div>
             </div>
 
-            <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-3 plan-meals-heading">
                 <h5 class="fw-bold mb-0 text-secondary" id="selectedDayTitle">Comidas del Día 1</h5>
             </div>
             
