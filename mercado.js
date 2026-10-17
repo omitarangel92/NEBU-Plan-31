@@ -1,6 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getFirestore, doc, runTransaction, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, signOut, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA8oIEjox4y8vm7vsnwd0JQaixiw_6Chvs",
@@ -14,9 +15,42 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const functions = getFunctions(app, "us-central1");
+const authorizeUser = httpsCallable(functions, "authorizeUser");
 
 const sharedMarketRef = doc(db, "sharedData", "marketCompleteData");
 const DEFAULT_MARKET_BUDGET = 400000;
+const MARKET_SETUP_VERSION = 1;
+const NUTRITION_FRUITS = [
+  { concept: "Papaya", aliases: ["papaya", "papayas"] },
+  { concept: "Banano", aliases: ["banano", "bananos", "banana", "bananas"] },
+  { concept: "Mandarina", aliases: ["mandarina", "mandarinas"] },
+  { concept: "Naranja", aliases: ["naranja", "naranjas"] },
+  { concept: "Manzana", aliases: ["manzana", "manzanas"] },
+  { concept: "Uvas", aliases: ["uva", "uvas"] },
+  { concept: "Uchuvas", aliases: ["uchuva", "uchuvas"] },
+  { concept: "Durazno", aliases: ["durazno", "duraznos"] },
+  { concept: "Sandía", aliases: ["sandia", "sandias"] },
+  { concept: "Mango", aliases: ["mango", "mangos"] },
+  { concept: "Pera", aliases: ["pera", "peras"] },
+  { concept: "Fresas", aliases: ["fresa", "fresas", "frutilla", "frutillas"] },
+  { concept: "Kiwi", aliases: ["kiwi", "kiwis"] },
+  { concept: "Coco", aliases: ["coco", "cocos"] },
+  { concept: "Ciruelas", aliases: ["ciruela", "ciruelas"] },
+  { concept: "Piña", aliases: ["pina", "pinas"] },
+  { concept: "Limón", aliases: ["limon", "limones"] },
+  { concept: "Aguacate", aliases: ["aguacate", "aguacates", "palta", "paltas"] },
+  { concept: "Tomate", aliases: ["tomate", "tomates"] },
+  { concept: "Plátano maduro", aliases: ["platano maduro", "platanos maduros"] },
+  { concept: "Plátano verde", aliases: ["platano verde", "platanos verdes"] },
+  { concept: "Uvas pasas", aliases: ["uva pasa", "uvas pasas", "pasas"] }
+];
+const MEAT_TERMS = [
+  "carne", "pollo", "pechuga", "cerdo", "res", "pescado", "tilapia", "atun",
+  "sardina", "camaron", "chorizo", "morcilla", "salchicha", "menudencia",
+  "nugget", "colombina", "jamon", "mortadela", "tocino", "pezcuezo",
+  "espinazo", "costilla", "alita", "chicharron", "pata"
+];
 
 // Lista completa de productos
 const defaultMarketState = {
@@ -175,73 +209,324 @@ const defaultMarketState = {
 function createDefaultMarketState() {
   const state = JSON.parse(JSON.stringify(defaultMarketState));
   state.generalBudget = DEFAULT_MARKET_BUDGET;
-  state.generalItems = state.generalItems.map(item => ({
+  state.generalItems = state.generalItems.map((item, index) => ({
     ...item,
-    status: "NO",
-    place: ""
+    id: `default-${index}`,
+    status: "NO"
   }));
-  return state;
+  return applyInitialMarketSetup(state);
+}
+
+function normalizeConcept(value) {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function findNutritionFruit(concept) {
+  const normalized = normalizeConcept(concept);
+  return NUTRITION_FRUITS.find(fruit => fruit.aliases.includes(normalized));
+}
+
+function defaultPlaceForItem(concept) {
+  if (findNutritionFruit(concept)) return "Zapatoca";
+  const normalized = normalizeConcept(concept);
+  if (normalized.includes("sopera")) return "D1";
+  const words = normalized.split(/[^a-z0-9]+/);
+  if (words.some(word =>
+    MEAT_TERMS.some(term => word === term || word === `${term}s` || word === `${term}es`)
+  )) return "ARA";
+  return "D1";
+}
+
+function applyInitialMarketSetup(state) {
+  const generalItems = state.generalItems.map(item => {
+    const fruit = findNutritionFruit(item.concept);
+    return {
+      ...item,
+      area: fruit ? "Frutas" : item.area,
+      place: defaultPlaceForItem(item.concept)
+    };
+  });
+
+  NUTRITION_FRUITS.forEach((fruit, index) => {
+    if (generalItems.some(item => findNutritionFruit(item.concept)?.concept === fruit.concept)) return;
+    generalItems.push({
+      id: `nutrition-fruit-${index}`,
+      status: "NO",
+      concept: fruit.concept,
+      area: "Frutas",
+      price: 0,
+      qty: 1,
+      place: "Zapatoca"
+    });
+  });
+
+  return { ...state, generalItems };
 }
 
 window.marketState = createDefaultMarketState();
+let marketReady = false;
+let editingProductOriginal = null;
+let activeAuthUid = null;
+let stopMarketListener = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
   initBackToTop();
 });
 
-signInAnonymously(auth);
-
-onSnapshot(sharedMarketRef, (docSnap) => {
-  if (docSnap.exists()) {
-    const cloudData = docSnap.data().data;
-    if (cloudData && Array.isArray(cloudData.generalItems) && cloudData.generalItems.length >= 100) {
-      const parsedBudget = Number(cloudData.generalBudget);
-      const hasValidBudget = cloudData.generalBudget !== null
-        && cloudData.generalBudget !== ""
-        && Number.isFinite(parsedBudget);
-      const needsMigration = !hasValidBudget
-        || cloudData.generalItems.some(item =>
-          !item
-          || !["NO", "SI", "YA"].includes(item.status)
-          || typeof item.place !== "string"
-        );
-      window.marketState = {
-        ...cloudData,
-        generalBudget: hasValidBudget
-          ? parsedBudget
-          : DEFAULT_MARKET_BUDGET,
-        generalItems: cloudData.generalItems.map(item => {
-          const product = item && typeof item === "object" ? item : {};
-          const price = Number(product.price);
-          const qty = Number(product.qty);
-          return {
-            ...product,
-            status: ["NO", "SI", "YA"].includes(product.status) ? product.status : "NO",
-            concept: typeof product.concept === "string" ? product.concept : "",
-            area: typeof product.area === "string" ? product.area : "",
-            place: typeof product.place === "string" ? product.place : "",
-            price: Number.isFinite(price) ? price : 0,
-            qty: Number.isFinite(qty) && qty >= 1 ? qty : 1
-          };
-        })
-      };
-      if (needsMigration) saveData();
-    } else {
-      window.marketState = createDefaultMarketState();
-      saveData();
-    }
-    if (window.marketState.theme) {
-      document.documentElement.setAttribute("data-bs-theme", window.marketState.theme);
-      localStorage.setItem("fitplan_theme", window.marketState.theme);
-      updateThemeIcon(window.marketState.theme, document.getElementById("themeIcon"));
-    }
-  } else {
-    window.marketState = createDefaultMarketState();
-    setDoc(sharedMarketRef, { data: window.marketState });
-  }
-  renderGeneralTable();
+setSyncStatus("Conectando con la lista compartida...");
+onAuthStateChanged(auth, user => {
+  handleMarketAuthState(user).catch(error => {
+    console.error("Error validando el acceso:", error);
+    showMarketAuthGate("login", "No se pudo validar el acceso. Intenta iniciar sesión de nuevo.");
+  });
 });
+
+async function handleMarketAuthState(user) {
+  if (activeAuthUid && activeAuthUid !== user?.uid) {
+    stopMarketListener?.();
+    activeAuthUid = null;
+    marketReady = false;
+  }
+  if (user?.isAnonymous) {
+    await signOut(auth);
+    return;
+  }
+  if (!user) {
+    activeAuthUid = null;
+    marketReady = false;
+    stopMarketListener?.();
+    showMarketAuthGate("login");
+    return;
+  }
+  if (!user.emailVerified) {
+    showMarketAuthGate("verify", `Verifica el correo ${user.email} para habilitar el acceso.`);
+    return;
+  }
+  if (activeAuthUid === user.uid) {
+    document.getElementById("authGate").hidden = true;
+    document.getElementById("marketAppSection").hidden = false;
+    return;
+  }
+  try {
+    await authorizeUser();
+  } catch (error) {
+    if (error.code === "functions/permission-denied") {
+      await signOut(auth);
+      showMarketAuthGate("login", "Esta cuenta no está autorizada para usar la aplicación.");
+      return;
+    }
+    throw error;
+  }
+
+  document.getElementById("authGate").hidden = true;
+  document.getElementById("marketAppSection").hidden = false;
+  activeAuthUid = user.uid;
+  await initializeSharedMarket();
+}
+
+function showMarketAuthGate(mode, message = "") {
+  document.getElementById("authGate").hidden = false;
+  document.getElementById("marketAppSection").hidden = true;
+  document.getElementById("loginPanel").hidden = mode !== "login";
+  document.getElementById("verifyPanel").hidden = mode !== "verify";
+  document.getElementById("authMessage").textContent = message;
+}
+
+window.loginWithEmail = async function(event) {
+  event.preventDefault();
+  const email = document.getElementById("authEmail").value.trim().toLowerCase();
+  const password = document.getElementById("authPassword").value;
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch (error) {
+    console.error("Error iniciando sesión:", error);
+    showMarketAuthGate("login", "No se pudo iniciar sesión. Verifica el correo y la contraseña.");
+  }
+};
+
+window.sendVerificationEmail = async function() {
+  const user = auth.currentUser;
+  if (!user) {
+    showMarketAuthGate("login", "Inicia sesión con una cuenta autorizada primero.");
+    return;
+  }
+  try {
+    await sendEmailVerification(user);
+    showMarketAuthGate("verify", `Enviamos un enlace de verificación a ${user.email}.`);
+  } catch (error) {
+    console.error("Error enviando la verificación:", error);
+    showMarketAuthGate("verify", "No se pudo enviar el correo de verificación. Intenta de nuevo.");
+  }
+};
+
+window.confirmEmailVerified = async function() {
+  const user = auth.currentUser;
+  if (!user) return;
+  try {
+    await reload(user);
+    await user.getIdToken(true);
+    await handleMarketAuthState(user);
+    if (!user.emailVerified) {
+      showMarketAuthGate("verify", "Firebase aún no confirma el correo. Abre el enlace del mensaje e inténtalo otra vez.");
+    }
+  } catch (error) {
+    console.error("Error confirmando la verificación:", error);
+    showMarketAuthGate("verify", "No se pudo confirmar la verificación. Intenta de nuevo.");
+  }
+};
+
+window.logoutApp = function() {
+  signOut(auth).catch(error => {
+    console.error("Error cerrando sesión:", error);
+    Swal.fire({ icon: "error", title: "Error", text: "No se pudo cerrar la sesión." });
+  });
+};
+
+async function initializeSharedMarket() {
+  marketReady = false;
+  stopMarketListener?.();
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(sharedMarketRef);
+    if (!snapshot.exists()) {
+      transaction.set(sharedMarketRef, {
+        data: createDefaultMarketState(),
+        marketSetupVersion: MARKET_SETUP_VERSION
+      });
+      return;
+    }
+
+    const storedData = snapshot.data().data;
+    if (!storedData || !Array.isArray(storedData.generalItems)) {
+      throw new Error("Los datos guardados de la lista no tienen un formato válido. No se modificaron.");
+    }
+
+    const { state, needsMigration } = normalizeMarketState(storedData);
+    const setupVersion = Number(snapshot.data().marketSetupVersion) || 0;
+    if (setupVersion < MARKET_SETUP_VERSION) {
+      transaction.set(sharedMarketRef, {
+        data: applyInitialMarketSetup(state),
+        marketSetupVersion: MARKET_SETUP_VERSION
+      }, { merge: true });
+    } else if (needsMigration) {
+      transaction.set(sharedMarketRef, { data: state }, { merge: true });
+    }
+  });
+
+  stopMarketListener = onSnapshot(sharedMarketRef, { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.fromCache) {
+      setSyncStatus("Esperando confirmación del servidor...");
+      return;
+    }
+    if (!snapshot.exists()) {
+      reportSyncError(new Error("No se encontró la lista compartida en el servidor."));
+      return;
+    }
+
+    const storedData = snapshot.data().data;
+    if (!storedData || !Array.isArray(storedData.generalItems)) {
+      reportSyncError(new Error("Los datos guardados de la lista no tienen un formato válido. No se modificaron."));
+      return;
+    }
+
+    window.marketState = normalizeMarketState(storedData).state;
+    marketReady = true;
+    setSyncStatus(snapshot.metadata.hasPendingWrites ? "Guardando..." : "Sincronizado");
+    applyMarketTheme();
+    renderGeneralTable();
+  }, reportSyncError);
+}
+
+function normalizeMarketState(data) {
+  const parsedBudget = Number(data.generalBudget);
+  const hasValidBudget = data.generalBudget !== null
+    && data.generalBudget !== ""
+    && Number.isFinite(parsedBudget);
+  const productIds = new Set();
+  let needsMigration = !hasValidBudget
+    || !["light", "dark"].includes(data.theme);
+  data.generalItems.forEach(item => {
+    if (!item || typeof item !== "object") {
+      needsMigration = true;
+      return;
+    }
+    const validId = typeof item.id === "string"
+      && item.id.trim() !== ""
+      && item.id.trim() === item.id
+      && !productIds.has(item.id);
+    if (validId) productIds.add(item.id);
+    if (!validId
+      || !["NO", "SI", "YA"].includes(item.status)
+      || typeof item.concept !== "string"
+      || typeof item.area !== "string"
+      || typeof item.place !== "string"
+      || !Number.isFinite(Number(item.price))
+      || !Number.isFinite(Number(item.qty))
+      || Number(item.qty) < 1) {
+      needsMigration = true;
+    }
+  });
+  const usedIds = new Set();
+  const state = {
+    ...data,
+    generalBudget: hasValidBudget ? parsedBudget : DEFAULT_MARKET_BUDGET,
+    theme: ["light", "dark"].includes(data.theme) ? data.theme : "light",
+    generalItems: data.generalItems.map((item, index) => {
+      const product = item && typeof item === "object" ? item : {};
+      const price = Number(product.price);
+      const qty = Number(product.qty);
+      let id = typeof product.id === "string" ? product.id.trim() : "";
+      if (!id || usedIds.has(id)) {
+        id = `legacy-${index}`;
+        while (usedIds.has(id)) id += "-migrated";
+      }
+      usedIds.add(id);
+      return {
+        ...product,
+        id,
+        status: ["NO", "SI", "YA"].includes(product.status) ? product.status : "NO",
+        concept: typeof product.concept === "string" ? product.concept : "",
+        area: typeof product.area === "string" ? product.area : "",
+        place: typeof product.place === "string" ? product.place : "",
+        price: Number.isFinite(price) ? price : 0,
+        qty: Number.isFinite(qty) && qty >= 1 ? qty : 1
+      };
+    })
+  };
+  return { state, needsMigration };
+}
+
+function applyMarketTheme() {
+  const theme = window.marketState.theme;
+  document.documentElement.setAttribute("data-bs-theme", theme);
+  localStorage.setItem("fitplan_theme", theme);
+  updateThemeIcon(theme, document.getElementById("themeIcon"));
+}
+
+function setSyncStatus(message, isError = false) {
+  const status = document.getElementById("marketSyncStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("text-danger", isError);
+  status.classList.toggle("text-success", !isError && message === "Sincronizado");
+}
+
+function reportSyncError(error) {
+  console.error("Error sincronizando la lista de mercado:", error);
+  setSyncStatus("Error de sincronización. Tus cambios no se guardaron.", true);
+  if (window.Swal) {
+    Swal.fire({
+      icon: "error",
+      title: "No se pudo sincronizar",
+      text: "Revisa tu conexión e inténtalo de nuevo. La lista guardada no se reemplazó."
+    });
+  }
+}
 
 /* --- TEMA CLARO / OSCURO --- */
 function initThemeToggle() {
@@ -257,12 +542,7 @@ function initThemeToggle() {
   toggleBtn.addEventListener("click", () => {
     const current = htmlElement.getAttribute("data-bs-theme");
     const next = current === "dark" ? "light" : "dark";
-    htmlElement.setAttribute("data-bs-theme", next);
-    localStorage.setItem("fitplan_theme", next); 
-    updateThemeIcon(next, themeIcon);
-
-    window.marketState.theme = next;
-    saveData();
+    saveData(state => ({ ...state, theme: next }));
   });
 }
 
@@ -302,11 +582,12 @@ function renderGeneralTable() {
 
   const searchText = (document.getElementById("searchConcept")?.value || "").toLowerCase();
   const statusFilter = document.getElementById("filterStatus")?.value || "";
+  updateMarketFilters();
   const areaFilter = document.getElementById("filterArea")?.value || "";
-  updatePlaceFilter();
   const placeFilter = document.getElementById("filterPlace")?.value || "";
 
-  const fullSpent = calculateTotalSpent(window.marketState.generalItems);
+  const fullSpent = calculateTotalForStatuses(window.marketState.generalItems, ["SI", "YA"]);
+  const siTotal = calculateTotalForStatuses(window.marketState.generalItems, ["SI"]);
 
   let visibleCount = 0;
   window.marketState.generalItems.forEach((item, index) => {
@@ -327,8 +608,8 @@ function renderGeneralTable() {
           <option value="YA" ${item.status === "YA" ? "selected" : ""}>YA</option>
         </select>
       </td>
-      <td class="fw-semibold">${item.concept}</td>
-      <td><span class="badge bg-secondary-subtle text-secondary border">${item.area}</span></td>
+      <td class="fw-semibold">${escapeHtml(item.concept)}</td>
+      <td><span class="badge bg-secondary-subtle text-secondary border">${escapeHtml(item.area)}</span></td>
       <td>${escapeHtml(item.place || "—")}</td>
       <td class="text-end">$${item.price.toLocaleString("es-CO")}</td>
       <td class="text-center">${item.qty}</td>
@@ -352,29 +633,38 @@ function renderGeneralTable() {
   document.getElementById("genBudget").textContent = `$${budget.toLocaleString("es-CO")}`;
   document.getElementById("genTotal").textContent = `$${fullSpent.toLocaleString("es-CO")}`;
   document.getElementById("genRemaining").textContent = `$${remaining.toLocaleString("es-CO")}`;
+  document.getElementById("siTotal").textContent = `$${siTotal.toLocaleString("es-CO")}`;
+  document.getElementById("siTotalCard").hidden = statusFilter !== "SI";
 }
 
-function calculateTotalSpent(items) {
+function calculateTotalForStatuses(items, statuses) {
   return items.reduce((total, item) => {
-    return item.status === "SI" || item.status === "YA"
+    return statuses.includes(item.status)
       ? total + (item.price * item.qty)
       : total;
   }, 0);
 }
 
-function updatePlaceFilter() {
-  const select = document.getElementById("filterPlace");
-  if (!select) return;
-
-  const selectedPlace = select.value;
+function updateMarketFilters() {
+  const areas = [...new Set(window.marketState.generalItems
+    .map(item => item.area.trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
   const places = [...new Set(window.marketState.generalItems
     .map(item => item.place.trim())
     .filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "es"));
 
-  select.replaceChildren(new Option("Lugar de compra: Todos", ""));
-  places.forEach(place => select.add(new Option(place, place)));
-  if (places.includes(selectedPlace)) select.value = selectedPlace;
+  updateFilterOptions(document.getElementById("filterArea"), "Área: Todas", areas);
+  updateFilterOptions(document.getElementById("filterPlace"), "Lugar de compra: Todos", places);
+}
+
+function updateFilterOptions(select, placeholder, values) {
+  if (!select) return;
+  const selectedValue = select.value;
+  select.replaceChildren(new Option(placeholder, ""));
+  values.forEach(value => select.add(new Option(value, value)));
+  if (values.includes(selectedValue)) select.value = selectedValue;
 }
 
 function escapeHtml(value) {
@@ -388,13 +678,18 @@ function escapeHtml(value) {
 }
 
 window.updateGenStatus = function(index, val) {
-  window.marketState.generalItems[index].status = val;
-  saveData();
+  const itemId = window.marketState.generalItems[index]?.id;
+  if (!itemId) return;
+  saveData(state => ({
+    ...state,
+    generalItems: updateMarketItem(state.generalItems, itemId, { status: val })
+  }));
 };
 
 window.openAddGeneralModal = function() {
+  editingProductOriginal = null;
   document.getElementById("genModalTitle").textContent = "Agregar Producto General";
-  document.getElementById("genProdIndex").value = "";
+  document.getElementById("genProdId").value = "";
   document.getElementById("genConcept").value = "";
   document.getElementById("genArea").value = "Aseo Casita";
   document.getElementById("genPlace").value = "";
@@ -406,8 +701,10 @@ window.openAddGeneralModal = function() {
 
 window.openEditGeneralModal = function(index) {
   const item = window.marketState.generalItems[index];
+  if (!item) return;
+  editingProductOriginal = { ...item };
   document.getElementById("genModalTitle").textContent = "Editar Producto General";
-  document.getElementById("genProdIndex").value = index;
+  document.getElementById("genProdId").value = item.id;
   document.getElementById("genConcept").value = item.concept;
   document.getElementById("genArea").value = item.area;
   document.getElementById("genPlace").value = item.place || "";
@@ -418,10 +715,10 @@ window.openEditGeneralModal = function(index) {
 };
 
 window.saveGeneralProduct = function() {
-  const idx = document.getElementById("genProdIndex").value;
+  const itemId = document.getElementById("genProdId").value;
   const concept = document.getElementById("genConcept").value;
   const area = document.getElementById("genArea").value;
-  const place = document.getElementById("genPlace").value.trim();
+  const place = document.getElementById("genPlace").value.trim() || defaultPlaceForItem(concept);
   const price = Number(document.getElementById("genPrice").value) || 0;
   const qty = Number(document.getElementById("genQty").value) || 1;
   const status = document.getElementById("genStatus").value;
@@ -431,15 +728,52 @@ window.saveGeneralProduct = function() {
     return;
   }
 
-  const newItem = { status, concept, area, place, price, qty };
-  if (idx === "") window.marketState.generalItems.push(newItem);
-  else window.marketState.generalItems[Number(idx)] = newItem;
-
-  saveData();
+  const existingItem = itemId === ""
+    ? null
+    : window.marketState.generalItems.find(item => item.id === itemId);
+  if (itemId && !existingItem) {
+    Swal.fire({
+      icon: "warning",
+      title: "Producto ya no disponible",
+      text: "Este producto ya no está en la lista compartida. Cierra el formulario y vuelve a cargarlo."
+    });
+    return;
+  }
+  const newItem = {
+    id: itemId || `item-${crypto.randomUUID()}`,
+    status,
+    concept,
+    area,
+    place,
+    price,
+    qty
+  };
+  const originalItem = editingProductOriginal
+    ? { ...editingProductOriginal }
+    : existingItem
+      ? { ...existingItem }
+      : null;
+  saveData(state => ({
+    ...state,
+    generalItems: existingItem
+      ? updateMarketItem(
+        state.generalItems,
+        existingItem.id,
+        Object.fromEntries(
+          ["status", "concept", "area", "place", "price", "qty"]
+            .filter(field => !Object.is(originalItem?.[field], newItem[field]))
+            .map(field => [field, newItem[field]])
+        )
+      )
+      : [...state.generalItems, newItem]
+  }));
+  editingProductOriginal = null;
   bootstrap.Modal.getInstance(document.getElementById("genProductModal")).hide();
 };
 
 window.deleteGeneralItem = function(index) {
+  const itemId = window.marketState.generalItems[index]?.id;
+  if (!itemId) return;
   Swal.fire({
     title: '¿Eliminar producto?',
     text: "Esta acción no se puede deshacer",
@@ -451,11 +785,29 @@ window.deleteGeneralItem = function(index) {
     cancelButtonText: 'Cancelar'
   }).then((result) => {
     if (result.isConfirmed) {
-      window.marketState.generalItems.splice(index, 1);
-      saveData();
+      saveData(state => {
+        const generalItems = state.generalItems.filter(item => item.id !== itemId);
+        if (generalItems.length === state.generalItems.length) {
+          throw new Error("El producto ya fue eliminado desde otro dispositivo.");
+        }
+        return { ...state, generalItems };
+      });
     }
   });
 };
+
+function updateMarketItem(items, itemId, changes) {
+  let found = false;
+  const generalItems = items.map(item => {
+    if (item.id !== itemId) return item;
+    found = true;
+    return { ...item, ...changes };
+  });
+  if (!found) {
+    throw new Error("El producto fue modificado o eliminado desde otro dispositivo. Actualiza la lista e inténtalo de nuevo.");
+  }
+  return generalItems;
+}
 
 window.changeGeneralBudget = function() {
   Swal.fire({
@@ -467,8 +819,8 @@ window.changeGeneralBudget = function() {
     cancelButtonText: "Cancelar"
   }).then((res) => {
     if (res.isConfirmed && res.value) {
-      window.marketState.generalBudget = Number(res.value);
-      saveData();
+      const budget = Number(res.value);
+      saveData(state => ({ ...state, generalBudget: budget }));
     }
   });
 };
@@ -476,24 +828,53 @@ window.changeGeneralBudget = function() {
 window.restoreFullList = function() {
   Swal.fire({
     title: '¿Restablecer lista completa?',
-    text: "Se recargarán los productos originales en estado NO y el presupuesto volverá a $400.000.",
+    text: "Se reemplazará toda la lista, incluidos los productos personalizados, por los productos originales en estado NO y el presupuesto volverá a $400.000.",
     icon: 'question',
     showCancelButton: true,
     confirmButtonText: 'Sí, restablecer',
     cancelButtonText: 'Cancelar'
   }).then((res) => {
     if (res.isConfirmed) {
-      window.marketState = createDefaultMarketState();
       document.getElementById("searchConcept").value = "";
       document.getElementById("filterStatus").value = "";
       document.getElementById("filterArea").value = "";
       document.getElementById("filterPlace").value = "";
-      saveData();
-      Swal.fire('Restablecido', 'Lista completa recuperada en estado NO con un presupuesto de $400.000.', 'success');
+      saveData(
+        () => createDefaultMarketState(),
+        "Lista completa recuperada en estado NO con un presupuesto de $400.000."
+      );
     }
   });
 };
 
-function saveData() {
-  setDoc(sharedMarketRef, { data: window.marketState }, { merge: true });
+async function saveData(updateState, successMessage) {
+  if (!marketReady) {
+    Swal.fire({
+      icon: "info",
+      title: "Lista cargando",
+      text: "Espera a que la lista termine de sincronizar antes de guardar cambios."
+    });
+    return;
+  }
+
+  setSyncStatus("Guardando...");
+  try {
+    await runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(sharedMarketRef);
+      if (!snapshot.exists()) {
+        throw new Error("La lista compartida ya no existe. No se guardaron los cambios.");
+      }
+      const storedData = snapshot.data().data;
+      if (!storedData || !Array.isArray(storedData.generalItems)) {
+        throw new Error("Los datos guardados de la lista no tienen un formato válido.");
+      }
+      const currentState = normalizeMarketState(storedData).state;
+      transaction.set(sharedMarketRef, { data: updateState(currentState) }, { merge: true });
+    });
+    if (successMessage) {
+      Swal.fire("Restablecido", successMessage, "success");
+    }
+  } catch (error) {
+    reportSyncError(error);
+  }
 }

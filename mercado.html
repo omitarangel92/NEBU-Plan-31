@@ -10,10 +10,38 @@
     <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
     <link rel="stylesheet" href="mercado.css">
     <link rel="stylesheet" href="navbar.css">
+    <link rel="stylesheet" href="auth.css">
 </head>
 
 <body>
 
+    <section id="authGate" class="auth-gate container" aria-labelledby="authTitle">
+        <div class="auth-card card shadow-sm border-0">
+            <div class="card-body p-4 p-md-5">
+                <h1 id="authTitle" class="h4 fw-bold text-success mb-2">NEBU Mercado</h1>
+                <p class="text-secondary mb-4">Inicia sesión para acceder a la lista compartida.</p>
+                <p id="authMessage" class="small text-danger" role="status" aria-live="polite"></p>
+                <form id="loginPanel" onsubmit="loginWithEmail(event)">
+                    <div class="mb-3">
+                        <label class="form-label" for="authEmail">Correo autorizado</label>
+                        <input id="authEmail" class="form-control" type="email" autocomplete="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="authPassword">Contraseña</label>
+                        <input id="authPassword" class="form-control" type="password" autocomplete="current-password" required>
+                    </div>
+                    <button class="btn btn-success w-100" type="submit">Iniciar sesión</button>
+                </form>
+                <div id="verifyPanel" hidden>
+                    <p>Debes verificar tu correo antes de entrar.</p>
+                    <button class="btn btn-outline-success w-100 mb-2" type="button" onclick="sendVerificationEmail()">Enviar correo de verificación</button>
+                    <button class="btn btn-success w-100" type="button" onclick="confirmEmailVerified()">Ya verifiqué mi correo</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div id="marketAppSection" hidden>
     <!-- Navegación -->
     <nav class="navbar navbar-expand-lg border-bottom app-navbar">
         <div class="container app-navbar-inner">
@@ -25,6 +53,7 @@
                 <a href="index.html" class="btn btn-success btn-sm rounded-pill px-3 fw-semibold shadow-sm app-navbar-link"
                     aria-label="Plan Nutricional" title="Plan Nutricional"><i class="bi bi-calendar3 me-1"
                         aria-hidden="true"></i> Plan Nutricional</a>
+                <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 app-navbar-link" type="button" onclick="logoutApp()">Salir</button>
                 <button
                     class="btn btn-outline-secondary rounded-circle d-flex align-items-center justify-content-center app-navbar-theme"
                     id="themeToggle" type="button" style="width: 40px; height: 40px;">
@@ -81,14 +110,6 @@
                 <div class="col-lg-3 col-md-6">
                     <select class="form-select" id="filterArea" onchange="filterGeneralTable()">
                         <option value="">Área: Todas</option>
-                        <option value="Aseo Casita">Aseo Casita</option>
-                        <option value="Aseo Cocina">Aseo Cocina</option>
-                        <option value="Aseo Personal">Aseo Personal</option>
-                        <option value="Baño">Baño</option>
-                        <option value="Lavandería">Lavandería</option>
-                        <option value="Proteina">Proteina</option>
-                        <option value="Salsas">Salsas</option>
-                        <option value="Granos">Granos</option>
                     </select>
                 </div>
                 <div class="col-lg-3 col-md-6">
@@ -97,6 +118,10 @@
                     </select>
                 </div>
             </div>
+            <div id="siTotalCard" class="alert alert-success d-flex justify-content-between align-items-center mt-3 mb-0 py-2" role="status" hidden>
+                <span class="fw-semibold">Total de productos por comprar (SI)</span>
+                <strong id="siTotal" class="fs-5">$0</strong>
+            </div>
         </div>
 
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
@@ -104,11 +129,14 @@
                     class="bi bi-list-columns-reverse me-2"></i>Lista Completa</h5>
             <div class="d-flex gap-2">
                 <button class="btn btn-outline-secondary fw-semibold px-3 rounded-pill" onclick="restoreFullList()"><i
-                        class="bi bi-arrow-counterclockwise me-1"></i> Recargar 145+ Ítems</button>
+                        class="bi bi-arrow-counterclockwise me-1"></i> Restablecer Lista</button>
                 <button class="btn btn-success fw-semibold px-4 rounded-pill shadow-sm"
                     onclick="openAddGeneralModal()"><i class="bi bi-plus-lg me-1"></i> Agregar Producto</button>
             </div>
         </div>
+        <p id="marketSyncStatus" class="small text-secondary mb-2" role="status" aria-live="polite">
+            Conectando con la lista compartida...
+        </p>
 
         <div class="card overflow-hidden">
             <div class="card-body p-0">
@@ -142,7 +170,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="hidden" id="genProdIndex">
+                    <input type="hidden" id="genProdId">
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Concepto / Producto</label>
                         <input type="text" class="form-control" id="genConcept" placeholder="Ej. Crema dental" required>
@@ -190,6 +218,7 @@
         title="Volver al inicio" hidden>
         <i class="bi bi-arrow-up" aria-hidden="true"></i>
     </button>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>

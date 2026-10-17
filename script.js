@@ -3,7 +3,8 @@
 // ==========================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, signOut, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 // ==========================================================================
 // 2. CONFIGURACIÓN E INICIALIZACIÓN
@@ -20,13 +21,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-
-// ==========================================================================
-// 3. CLAVE DE GROQ FRAGMENTADA
-// ==========================================================================
-const keyPart1 = "gsk_SUQ3Iso7l8LTTF8Zgb3D";
-const keyPart2 = "WGdyb3FYKf8qxqFf1VYuFMwat4dsWKWd";
-const GROQ_API_KEY = keyPart1 + keyPart2;
+const functions = getFunctions(app, "us-central1");
+const authorizeUser = httpsCallable(functions, "authorizeUser");
+const calculateMacros = httpsCallable(functions, "calculateMacros");
 
 // ==========================================================================
 // 4. VARIABLES GLOBALES
@@ -35,59 +32,171 @@ let appInitialized = false;
 window.mealPlanData = []; 
 window.checkboxStates = {}; 
 let currentUserUid = null;
+let activeAuthUid = null;
+let stopPlanListener = null;
+let stopCheckboxListener = null;
 
 const sharedPlanRef = doc(db, "sharedData", "mainPlan");
 
-// ==========================================================================
-// 5. AUTENTICACIÓN ANÓNIMA Y SINCRONIZACIÓN
-// ==========================================================================
-signInAnonymously(auth).catch((error) => {
-  console.error("Error en la autenticación anónima:", error);
+onAuthStateChanged(auth, user => {
+  handleAuthState(user).catch(error => {
+    console.error("Error validando el acceso:", error);
+    showAuthGate("login", "No se pudo validar el acceso. Intenta iniciar sesión de nuevo.");
+  });
 });
 
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    currentUserUid = user.uid;
-    
-    // 1. Plan de comidas compartido en tiempo real
-    onSnapshot(sharedPlanRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        window.mealPlanData = data.plan || JSON.parse(JSON.stringify(defaultMealPlanData));
-        if (data.theme) {
-          document.documentElement.setAttribute("data-bs-theme", data.theme);
-          localStorage.setItem("fitplan_theme", data.theme); 
-          updateThemeIcon(data.theme, document.getElementById("themeIcon"));
-        }
-      } else {
-        window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
-        setDoc(sharedPlanRef, {
-          plan: window.mealPlanData,
-          theme: "light"
-        });
-      }
-
-      if (!appInitialized) {
-        appInitialized = true;
-        initApp();
-      } else {
-        loadDay(currentDay);
-      }
-    });
-
-    // 2. Checkboxes independientes por dispositivo en tiempo real
-    const userCheckboxesRef = doc(db, "users", currentUserUid);
-    onSnapshot(userCheckboxesRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        window.checkboxStates = data.checkboxes || {};
-      } else {
-        window.checkboxStates = {};
-      }
-      loadCheckboxState();
-    });
+async function handleAuthState(user) {
+  if (activeAuthUid && activeAuthUid !== user?.uid) {
+    stopPlanListener?.();
+    stopCheckboxListener?.();
+    activeAuthUid = null;
+    currentUserUid = null;
   }
-});
+  if (user?.isAnonymous) {
+    await signOut(auth);
+    return;
+  }
+  if (!user) {
+    currentUserUid = null;
+    activeAuthUid = null;
+    stopPlanListener?.();
+    stopCheckboxListener?.();
+    showAuthGate("login");
+    return;
+  }
+  if (!user.emailVerified) {
+    showAuthGate("verify", `Verifica el correo ${user.email} para habilitar el acceso.`);
+    return;
+  }
+  if (activeAuthUid === user.uid) {
+    document.getElementById("authGate").hidden = true;
+    document.getElementById("appSection").hidden = false;
+    return;
+  }
+  try {
+    await authorizeUser();
+  } catch (error) {
+    if (error.code === "functions/permission-denied") {
+      await signOut(auth);
+      showAuthGate("login", "Esta cuenta no está autorizada para usar la aplicación.");
+      return;
+    }
+    throw error;
+  }
+
+  document.getElementById("authGate").hidden = true;
+  document.getElementById("appSection").hidden = false;
+
+  stopPlanListener?.();
+  stopCheckboxListener?.();
+  activeAuthUid = user.uid;
+  currentUserUid = user.uid;
+
+  stopPlanListener = onSnapshot(sharedPlanRef, docSnap => {
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      window.mealPlanData = data.plan || JSON.parse(JSON.stringify(defaultMealPlanData));
+      if (data.theme) {
+        document.documentElement.setAttribute("data-bs-theme", data.theme);
+        localStorage.setItem("fitplan_theme", data.theme);
+        updateThemeIcon(data.theme, document.getElementById("themeIcon"));
+      }
+    } else {
+      window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
+      setDoc(sharedPlanRef, {
+        plan: window.mealPlanData,
+        theme: "light"
+      }).catch(error => {
+        console.error("Error inicializando el plan:", error);
+        Swal.fire({ icon: "error", title: "Error", text: "No se pudo inicializar el plan nutricional." });
+      });
+    }
+
+    if (!appInitialized) {
+      appInitialized = true;
+      initApp();
+    } else {
+      loadDay(currentDay);
+    }
+  }, error => {
+    console.error("Error sincronizando el plan:", error);
+    Swal.fire({ icon: "error", title: "Error", text: "No se pudo sincronizar el plan nutricional." });
+  });
+
+  const userCheckboxesRef = doc(db, "users", currentUserUid);
+  stopCheckboxListener = onSnapshot(userCheckboxesRef, docSnap => {
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      window.checkboxStates = data.checkboxes || {};
+    } else {
+      window.checkboxStates = {};
+    }
+    loadCheckboxState();
+  }, error => {
+    console.error("Error sincronizando las marcas personales:", error);
+    Swal.fire({ icon: "error", title: "Error", text: "No se pudieron sincronizar tus marcas personales." });
+  });
+}
+
+function showAuthGate(mode, message = "") {
+  const gate = document.getElementById("authGate");
+  const appSection = document.getElementById("appSection");
+  if (gate) gate.hidden = false;
+  if (appSection) appSection.hidden = true;
+  document.getElementById("loginPanel").hidden = mode !== "login";
+  document.getElementById("verifyPanel").hidden = mode !== "verify";
+  document.getElementById("authMessage").textContent = message;
+}
+
+window.loginWithEmail = async function(event) {
+  event.preventDefault();
+  const email = document.getElementById("authEmail").value.trim().toLowerCase();
+  const password = document.getElementById("authPassword").value;
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch (error) {
+    console.error("Error iniciando sesión:", error);
+    showAuthGate("login", "No se pudo iniciar sesión. Verifica el correo y la contraseña.");
+  }
+};
+
+window.sendVerificationEmail = async function() {
+  const user = auth.currentUser;
+  if (!user) {
+    showAuthGate("login", "Inicia sesión con una cuenta autorizada primero.");
+    return;
+  }
+  try {
+    await sendEmailVerification(user);
+    showAuthGate("verify", `Enviamos un enlace de verificación a ${user.email}.`);
+  } catch (error) {
+    console.error("Error enviando la verificación:", error);
+    showAuthGate("verify", "No se pudo enviar el correo de verificación. Intenta de nuevo.");
+  }
+};
+
+window.confirmEmailVerified = async function() {
+  const user = auth.currentUser;
+  if (!user) return;
+  try {
+    await reload(user);
+    await user.getIdToken(true);
+    await handleAuthState(user);
+    if (!user.emailVerified) {
+      showAuthGate("verify", "Firebase aún no confirma el correo. Abre el enlace del mensaje e inténtalo otra vez.");
+    }
+  } catch (error) {
+    console.error("Error confirmando la verificación:", error);
+    showAuthGate("verify", "No se pudo confirmar la verificación. Intenta de nuevo.");
+  }
+};
+
+window.logoutApp = function() {
+  signOut(auth).catch(error => {
+    console.error("Error cerrando sesión:", error);
+    Swal.fire({ icon: "error", title: "Error", text: "No se pudo cerrar la sesión." });
+  });
+};
 
 /* ==========================================================================
    LÓGICA DEL PROYECTO (FitPlan 30) - BASE DE DATOS ESTATICA
@@ -3139,10 +3248,10 @@ window.saveMealChanges = function() {
 }
 
 window.autoCalculateMacros = async function() {
-  const ingredients = document.getElementById('editIngredients').value;
-  const btn = document.getElementById('btnAutoCalc');
-  
-  if (!ingredients || ingredients.trim() === "") {
+  const ingredients = document.getElementById("editIngredients").value.trim();
+  const btn = document.getElementById("btnAutoCalc");
+
+  if (!ingredients) {
     alert("Por favor, ingresa los ingredientes primero para poder calcular.");
     return;
   }
@@ -3151,56 +3260,26 @@ window.autoCalculateMacros = async function() {
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Calculando...';
   btn.disabled = true;
 
-  const endpoint = "https://api.groq.com/openai/v1/chat/completions";
-
-  const promptText = `
-    Eres un nutricionista experto. Estima los macronutrientes para estos ingredientes: 
-    ${ingredients}
-    Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta y valores numéricos enteros:
-    {"calories": 0, "protein": 0, "carbs": 0, "fats": 0, "sugars": 0}
-  `;
-
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-        'Content-Type': 'application/json' 
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-oss-20b",
-        messages: [{ role: "user", content: promptText }],
-        response_format: { type: "json_object" } 
-      })
-    });
+    const result = await calculateMacros({ ingredients });
+    const macros = result.data;
+    document.getElementById("editCals").value = macros.calories;
+    document.getElementById("editProt").value = macros.protein;
+    document.getElementById("editCarbs").value = macros.carbs;
+    document.getElementById("editFats").value = macros.fats;
+    document.getElementById("editSugars").value = macros.sugars;
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`Error de conexión con Groq: ${errorData.error?.message || response.statusText}`);
-    }
-    
-    const data = await response.json();
-    const macros = JSON.parse(data.choices[0].message.content);
-
-    document.getElementById('editCals').value = macros.calories || 0;
-    document.getElementById('editProt').value = macros.protein || 0;
-    document.getElementById('editCarbs').value = macros.carbs || 0;
-    document.getElementById('editFats').value = macros.fats || 0;
-    document.getElementById('editSugars').value = macros.sugars || 0;
-    
-    btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> ¡Calculado!';
-    btn.classList.replace('btn-outline-primary', 'btn-success');
-    
+    btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> ?Calculado!';
+    btn.classList.replace("btn-outline-primary", "btn-success");
     setTimeout(() => {
       btn.innerHTML = originalText;
-      btn.classList.replace('btn-success', 'btn-outline-primary');
+      btn.classList.replace("btn-success", "btn-outline-primary");
     }, 2000);
-
   } catch (error) {
-    console.error("Detalle del error:", error);
-    alert("Ocurrió un problema conectando con Groq.\n\nDetalle: " + error.message);
+    console.error("Error calculando macros:", error);
+    alert("No se pudieron calcular los macros. Intenta de nuevo en un momento.");
     btn.innerHTML = originalText;
   } finally {
     btn.disabled = false;
   }
-}
+};

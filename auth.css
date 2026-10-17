@@ -1,0 +1,20 @@
+.auth-gate {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.auth-gate[hidden] {
+  display: none;
+}
+
+.auth-card {
+  width: min(100%, 28rem);
+  border-radius: 1rem;
+}
+
+#authMessage:empty {
+  display: none;
+}
