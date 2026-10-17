@@ -278,7 +278,49 @@ let stopMarketListener = null;
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
   initBackToTop();
+  initProductCategorySelects();
 });
+
+const ADD_NEW_OPTION = "__add_new__";
+
+function initProductCategorySelects() {
+  document.getElementById("genArea").addEventListener("change", event => {
+    const isAdding = event.target.value === ADD_NEW_OPTION;
+    const container = document.getElementById("newAreaContainer");
+    const input = document.getElementById("genNewArea");
+    container.hidden = !isAdding;
+    input.required = isAdding;
+    if (isAdding) input.focus();
+  });
+
+  document.getElementById("genPlace").addEventListener("change", event => {
+    const isAdding = event.target.value === ADD_NEW_OPTION;
+    const container = document.getElementById("newPlaceContainer");
+    const input = document.getElementById("genNewPlace");
+    container.hidden = !isAdding;
+    input.required = isAdding;
+    if (isAdding) input.focus();
+  });
+}
+
+function populateProductSelect(select, values, placeholder, selectedValue, addLabel) {
+  select.replaceChildren(new Option(placeholder, ""));
+  values.forEach(value => select.add(new Option(value, value)));
+  select.add(new Option(addLabel, ADD_NEW_OPTION));
+  select.value = selectedValue;
+}
+
+function getProductSelectValue(selectId, newValueId, label) {
+  const select = document.getElementById(selectId);
+  if (select.value !== ADD_NEW_OPTION) return select.value;
+
+  const newValue = document.getElementById(newValueId).value.trim();
+  if (!newValue) {
+    Swal.fire({ icon: "warning", title: "Falta el nombre", text: `Escribe el nombre de ${label}.` });
+    return null;
+  }
+  return newValue;
+}
 
 setSyncStatus("Conectando con la lista compartida...");
 onAuthStateChanged(auth, user => {
@@ -686,8 +728,19 @@ window.openAddGeneralModal = function() {
   document.getElementById("genModalTitle").textContent = "Agregar Producto General";
   document.getElementById("genProdId").value = "";
   document.getElementById("genConcept").value = "";
-  document.getElementById("genArea").value = "Aseo Casita";
-  document.getElementById("genPlace").value = "";
+  const areas = [...new Set(window.marketState.generalItems.map(item => item.area.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+  const places = [...new Set(window.marketState.generalItems.map(item => item.place.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+  const defaultArea = areas.includes("Aseo Casita") ? "Aseo Casita" : "";
+  populateProductSelect(document.getElementById("genArea"), areas, "Selecciona un área", defaultArea, "+ Agregar nueva área...");
+  populateProductSelect(document.getElementById("genPlace"), places, "Sin asignar (automático)", "", "+ Agregar nuevo lugar...");
+  document.getElementById("newAreaContainer").hidden = true;
+  document.getElementById("genNewArea").value = "";
+  document.getElementById("genNewArea").required = false;
+  document.getElementById("newPlaceContainer").hidden = true;
+  document.getElementById("genNewPlace").value = "";
+  document.getElementById("genNewPlace").required = false;
   document.getElementById("genPrice").value = "";
   document.getElementById("genQty").value = "1";
   document.getElementById("genStatus").value = "NO";
@@ -701,8 +754,18 @@ window.openEditGeneralModal = function(index) {
   document.getElementById("genModalTitle").textContent = "Editar Producto General";
   document.getElementById("genProdId").value = item.id;
   document.getElementById("genConcept").value = item.concept;
-  document.getElementById("genArea").value = item.area;
-  document.getElementById("genPlace").value = item.place || "";
+  const areas = [...new Set(window.marketState.generalItems.map(product => product.area.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+  const places = [...new Set(window.marketState.generalItems.map(product => product.place.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+  populateProductSelect(document.getElementById("genArea"), areas, "Selecciona un área", item.area, "+ Agregar nueva área...");
+  populateProductSelect(document.getElementById("genPlace"), places, "Sin asignar (automático)", item.place || "", "+ Agregar nuevo lugar...");
+  document.getElementById("newAreaContainer").hidden = true;
+  document.getElementById("genNewArea").value = "";
+  document.getElementById("genNewArea").required = false;
+  document.getElementById("newPlaceContainer").hidden = true;
+  document.getElementById("genNewPlace").value = "";
+  document.getElementById("genNewPlace").required = false;
   document.getElementById("genPrice").value = item.price;
   document.getElementById("genQty").value = item.qty;
   document.getElementById("genStatus").value = item.status;
@@ -712,8 +775,15 @@ window.openEditGeneralModal = function(index) {
 window.saveGeneralProduct = function() {
   const itemId = document.getElementById("genProdId").value;
   const concept = document.getElementById("genConcept").value;
-  const area = document.getElementById("genArea").value;
-  const place = document.getElementById("genPlace").value.trim() || defaultPlaceForItem(concept);
+  const area = getProductSelectValue("genArea", "genNewArea", "la nueva área");
+  if (area === null) return;
+  if (!area.trim()) {
+    Swal.fire({ icon: "warning", title: "Falta el área", text: "Selecciona un área o agrega una nueva." });
+    return;
+  }
+  const selectedPlace = getProductSelectValue("genPlace", "genNewPlace", "el nuevo lugar de compra");
+  if (selectedPlace === null) return;
+  const place = selectedPlace || defaultPlaceForItem(concept);
   const price = Number(document.getElementById("genPrice").value) || 0;
   const qty = Number(document.getElementById("genQty").value) || 1;
   const status = document.getElementById("genStatus").value;

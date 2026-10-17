@@ -177,13 +177,25 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Área / Categoría</label>
-                        <input type="text" class="form-control" id="genArea" placeholder="Ej. Aseo Personal, Cocina..."
-                            required>
+                        <select class="form-select" id="genArea" required>
+                            <option value="">Selecciona un área</option>
+                        </select>
+                        <div class="mt-2" id="newAreaContainer" hidden>
+                            <label class="form-label small" for="genNewArea">Nombre de la nueva área</label>
+                            <input type="text" class="form-control" id="genNewArea"
+                                placeholder="Ej. Aseo Personal, Cocina...">
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-bold" for="genPlace">Lugar de compra</label>
-                        <input type="text" class="form-control" id="genPlace"
-                            placeholder="Ej. Éxito, D1, tienda">
+                        <select class="form-select" id="genPlace">
+                            <option value="">Sin asignar (automático)</option>
+                        </select>
+                        <div class="mt-2" id="newPlaceContainer" hidden>
+                            <label class="form-label small" for="genNewPlace">Nombre del nuevo lugar de compra</label>
+                            <input type="text" class="form-control" id="genNewPlace"
+                                placeholder="Ej. Éxito, D1, tienda">
+                        </div>
                     </div>
                     <div class="row g-2 mb-3">
                         <div class="col-6">
