@@ -4,10 +4,10 @@ service cloud.firestore {
     function isAuthorizedUser() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && exists(/databases/$(database)/documents/appConfig/access)
-        && request.auth.token.email in get(
-          /databases/$(database)/documents/appConfig/access
-        ).data.allowedEmails;
+        && request.auth.uid in [
+          "khWRDuGHOxbih1kTdgLxgiv6Rd52",
+          "eBt7BBTdc4MLRzQx3arbgVxjM2F3"
+        ];
     }
 
     match /sharedData/{documentId} {
@@ -16,10 +16,6 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read, write: if isAuthorizedUser() && request.auth.uid == userId;
-    }
-
-    match /appConfig/{documentId} {
-      allow read, write: if false;
     }
 
     match /{document=**} {

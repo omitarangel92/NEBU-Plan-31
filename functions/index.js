@@ -1,29 +1,23 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
-const { getFirestore } = require("firebase-admin/firestore");
 
 initializeApp();
 const groqApiKey = defineSecret("GROQ_API_KEY");
 const macroFields = ["calories", "protein", "carbs", "fats", "sugars"];
+const authorizedUserIds = new Set([
+  "khWRDuGHOxbih1kTdgLxgiv6Rd52",
+  "eBt7BBTdc4MLRzQx3arbgVxjM2F3"
+]);
 
-async function assertAuthorizedUser(request) {
-  const email = request.auth?.token.email?.toLowerCase();
-  if (!request.auth || request.auth.token.email_verified !== true || !email) {
+function assertAuthorizedUser(request) {
+  if (!request.auth || request.auth.token.email_verified !== true) {
     throw new HttpsError("permission-denied", "Debes iniciar sesión con un correo verificado.");
   }
-
-  const accessDocument = await getFirestore().doc("appConfig/access").get();
-  const allowedEmails = accessDocument.data()?.allowedEmails;
-  if (!accessDocument.exists || !Array.isArray(allowedEmails) || !allowedEmails.includes(email)) {
+  if (!authorizedUserIds.has(request.auth.uid)) {
     throw new HttpsError("permission-denied", "Esta cuenta no está autorizada para usar la aplicación.");
   }
 }
-
-exports.authorizeUser = onCall({ region: "us-central1" }, async request => {
-  await assertAuthorizedUser(request);
-  return { authorized: true };
-});
 
 exports.calculateMacros = onCall(
   { region: "us-central1", secrets: [groqApiKey], timeoutSeconds: 60 },

@@ -1,6 +1,6 @@
 # Configuración segura de NEBU
 
-El frontend requiere autenticación de correo verificado. Firestore y la función de IA autorizan únicamente las cuentas guardadas por el administrador en `appConfig/access`; esa lista no está incluida en el repositorio.
+El frontend requiere autenticación de correo verificado. Firestore y la función de IA autorizan únicamente los dos UID de Firebase Authentication configurados en el código y en las reglas.
 
 ## Preparación de Firebase
 
@@ -21,25 +21,13 @@ El frontend requiere autenticación de correo verificado. Firestore y la funció
    firebase deploy --only firestore:rules
    ```
 
-6. En **Firestore Database → Data**, crea `appConfig/access` con este documento:
-
-   ```json
-   {
-     "allowedEmails": [
-       "correo-del-propietario",
-       "correo-de-la-esposa"
-     ]
-   }
-   ```
-
-   Sustituye los valores por los dos correos exactos de las cuentas de Firebase. Las reglas impiden que la web lea o cambie este documento.
-7. En Groq, revoca la clave anterior, genera otra y guárdala directamente como secreto de Firebase. No la pegues en el código, en GitHub ni en el chat:
+6. En Groq, revoca la clave anterior, genera otra y guárdala directamente como secreto de Firebase. No la pegues en el código, en GitHub ni en el chat:
 
    ```powershell
    firebase functions:secrets:set GROQ_API_KEY
    ```
 
-8. Instala las dependencias y publica las funciones:
+7. Instala las dependencias y publica las funciones:
 
    ```powershell
    Set-Location functions
@@ -48,10 +36,10 @@ El frontend requiere autenticación de correo verificado. Firestore y la funció
    firebase deploy --only functions
    ```
 
-   `GROQ_API_KEY` permanece en Secret Manager. La función lee los correos autorizados desde `appConfig/access`.
+   `GROQ_API_KEY` permanece en Secret Manager. La función solo permite el cálculo a los dos UID configurados.
 
-9. Cada persona inicia sesión en la web, solicita el correo de verificación y confirma la dirección antes de usar el plan o la lista.
+8. Cada persona inicia sesión en la web, solicita el correo de verificación y confirma la dirección antes de usar el plan o la lista.
 
 ## Reglas
 
-`firestore.rules` concede acceso únicamente a cuentas autenticadas, verificadas y presentes en `appConfig/access`. Cada usuario solo puede leer y guardar su propio documento `users/{uid}`; los documentos compartidos del plan y mercado se sincronizan entre las cuentas autorizadas. El acceso a cualquier otra ruta queda denegado.
+`firestore.rules` concede acceso únicamente a las dos cuentas cuyos UID están permitidos. Cada usuario solo puede leer y guardar su propio documento `users/{uid}`; los documentos compartidos del plan y mercado se sincronizan entre las dos cuentas. El acceso a cualquier otra ruta queda denegado.

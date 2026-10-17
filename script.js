@@ -22,8 +22,11 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const functions = getFunctions(app, "us-central1");
-const authorizeUser = httpsCallable(functions, "authorizeUser");
 const calculateMacros = httpsCallable(functions, "calculateMacros");
+const authorizedUserIds = new Set([
+  "khWRDuGHOxbih1kTdgLxgiv6Rd52",
+  "eBt7BBTdc4MLRzQx3arbgVxjM2F3"
+]);
 
 // ==========================================================================
 // 4. VARIABLES GLOBALES
@@ -64,6 +67,11 @@ async function handleAuthState(user) {
     showAuthGate("login");
     return;
   }
+  if (!authorizedUserIds.has(user.uid)) {
+    await signOut(auth);
+    showAuthGate("login", "Esta cuenta no está autorizada para usar la aplicación.");
+    return;
+  }
   if (!user.emailVerified) {
     showAuthGate("verify", `Verifica el correo ${user.email} para habilitar el acceso.`);
     return;
@@ -73,17 +81,6 @@ async function handleAuthState(user) {
     document.getElementById("appSection").hidden = false;
     return;
   }
-  try {
-    await authorizeUser();
-  } catch (error) {
-    if (error.code === "functions/permission-denied") {
-      await signOut(auth);
-      showAuthGate("login", "Esta cuenta no está autorizada para usar la aplicación.");
-      return;
-    }
-    throw error;
-  }
-
   document.getElementById("authGate").hidden = true;
   document.getElementById("appSection").hidden = false;
 

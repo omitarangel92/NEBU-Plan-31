@@ -1,7 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, runTransaction, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, signOut, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA8oIEjox4y8vm7vsnwd0JQaixiw_6Chvs",
@@ -15,8 +14,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const functions = getFunctions(app, "us-central1");
-const authorizeUser = httpsCallable(functions, "authorizeUser");
+const authorizedUserIds = new Set([
+  "khWRDuGHOxbih1kTdgLxgiv6Rd52",
+  "eBt7BBTdc4MLRzQx3arbgVxjM2F3"
+]);
 
 const sharedMarketRef = doc(db, "sharedData", "marketCompleteData");
 const DEFAULT_MARKET_BUDGET = 400000;
@@ -304,6 +305,11 @@ async function handleMarketAuthState(user) {
     showMarketAuthGate("login");
     return;
   }
+  if (!authorizedUserIds.has(user.uid)) {
+    await signOut(auth);
+    showMarketAuthGate("login", "Esta cuenta no está autorizada para usar la aplicación.");
+    return;
+  }
   if (!user.emailVerified) {
     showMarketAuthGate("verify", `Verifica el correo ${user.email} para habilitar el acceso.`);
     return;
@@ -313,17 +319,6 @@ async function handleMarketAuthState(user) {
     document.getElementById("marketAppSection").hidden = false;
     return;
   }
-  try {
-    await authorizeUser();
-  } catch (error) {
-    if (error.code === "functions/permission-denied") {
-      await signOut(auth);
-      showMarketAuthGate("login", "Esta cuenta no está autorizada para usar la aplicación.");
-      return;
-    }
-    throw error;
-  }
-
   document.getElementById("authGate").hidden = true;
   document.getElementById("marketAppSection").hidden = false;
   activeAuthUid = user.uid;
