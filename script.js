@@ -3123,20 +3123,6 @@ function loadCheckboxState() {
   updateProgress();
 }
 
-window.resetDayCheckboxes = function () {
-  document.querySelectorAll(".meal-checkbox").forEach(cb => cb.checked = false);
-  window.checkboxStates[currentDay] = {};
-  
-  updateProgress();
-
-  const dayData = window.mealPlanData.find(d => d.day === currentDay);
-  if (dayData) updateConsumedCalories(dayData.meals);
-
-  if (currentUserUid) {
-    setDoc(doc(db, "users", currentUserUid), { checkboxes: window.checkboxStates }, { merge: true });
-  }
-};
-
 function updateProgress() {
   const checkboxes = document.querySelectorAll(".meal-checkbox");
   const textEl = document.getElementById("progressText");

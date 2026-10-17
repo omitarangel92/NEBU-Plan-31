@@ -890,29 +890,7 @@ window.changeGeneralBudget = function() {
   });
 };
 
-window.restoreFullList = function() {
-  Swal.fire({
-    title: '¿Restablecer lista completa?',
-    text: "Se reemplazará toda la lista, incluidos los productos personalizados, por los productos originales en estado NO y el presupuesto volverá a $400.000.",
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonText: 'Sí, restablecer',
-    cancelButtonText: 'Cancelar'
-  }).then((res) => {
-    if (res.isConfirmed) {
-      document.getElementById("searchConcept").value = "";
-      document.getElementById("filterStatus").value = "";
-      document.getElementById("filterArea").value = "";
-      document.getElementById("filterPlace").value = "";
-      saveData(
-        () => createDefaultMarketState(),
-        "Lista completa recuperada en estado NO con un presupuesto de $400.000."
-      );
-    }
-  });
-};
-
-async function saveData(updateState, successMessage) {
+async function saveData(updateState) {
   if (!marketReady) {
     Swal.fire({
       icon: "info",
@@ -936,9 +914,6 @@ async function saveData(updateState, successMessage) {
       const currentState = normalizeMarketState(storedData).state;
       transaction.set(sharedMarketRef, { data: updateState(currentState) }, { merge: true });
     });
-    if (successMessage) {
-      Swal.fire("Restablecido", successMessage, "success");
-    }
   } catch (error) {
     reportSyncError(error);
   }
