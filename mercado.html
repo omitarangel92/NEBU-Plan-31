@@ -32,6 +32,9 @@
                     </div>
                     <button class="btn btn-success w-100" type="submit">Iniciar sesión</button>
                 </form>
+                <button class="btn btn-link btn-sm px-0 mt-2" type="button" onclick="sendPasswordReset()">
+                    Olvidé mi contraseña
+                </button>
                 <div id="verifyPanel" hidden>
                     <p>Debes verificar tu correo antes de entrar.</p>
                     <button class="btn btn-outline-success w-100 mb-2" type="button" onclick="sendVerificationEmail()">Enviar correo de verificación</button>
@@ -67,7 +70,7 @@
 
         <!-- Resumen Financiero General -->
         <div class="row g-3 mb-4">
-            <div class="col-md-4">
+            <div class="col-6 col-xl-3">
                 <div class="card p-3 text-center bg-success-subtle text-success border-0 shadow-sm">
                     <small class="fw-semibold text-uppercase opacity-75">Presupuesto General</small>
                     <h3 class="fw-bold mb-0 my-1" id="genBudget">$400.000</h3>
@@ -75,15 +78,21 @@
                         onclick="changeGeneralBudget()"><i class="bi bi-pencil-square"></i> Cambiar Presupuesto</button>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-6 col-xl-3">
                 <div class="card p-3 text-center bg-primary-subtle text-primary border-0 shadow-sm">
-                    <small class="fw-semibold text-uppercase opacity-75">Total Gastado</small>
+                    <small class="fw-semibold text-uppercase opacity-75">Comprado (YA)</small>
                     <h3 class="fw-bold mb-0 my-1" id="genTotal">$0</h3>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-6 col-xl-3">
                 <div class="card p-3 text-center bg-warning-subtle text-warning-emphasis border-0 shadow-sm">
-                    <small class="fw-semibold text-uppercase opacity-75">Restante / Saldo</small>
+                    <small class="fw-semibold text-uppercase opacity-75">Por comprar (SI)</small>
+                    <h3 class="fw-bold mb-0 my-1" id="genPending">$0</h3>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="card p-3 text-center bg-warning-subtle text-warning-emphasis border-0 shadow-sm">
+                    <small class="fw-semibold text-uppercase opacity-75">Saldo proyectado</small>
                     <h3 class="fw-bold mb-0 my-1" id="genRemaining">$0</h3>
                 </div>
             </div>
@@ -118,6 +127,14 @@
                     </select>
                 </div>
             </div>
+            <div class="d-flex flex-wrap justify-content-end gap-2 mt-3">
+                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearMarketFilters()">
+                    <i class="bi bi-x-circle me-1"></i> Limpiar filtros
+                </button>
+                <button class="btn btn-outline-success btn-sm" type="button" onclick="openCatalogManager()">
+                    <i class="bi bi-tags me-1"></i> Administrar áreas y lugares
+                </button>
+            </div>
             <div id="siTotalCard" class="alert alert-success d-flex justify-content-between align-items-center mt-3 mb-0 py-2" role="status" hidden>
                 <span class="fw-semibold">Total de productos por comprar (SI)</span>
                 <strong id="siTotal" class="fs-5">$0</strong>
@@ -133,6 +150,19 @@
         <p id="marketSyncStatus" class="small text-secondary mb-2" role="status" aria-live="polite">
             Conectando con la lista compartida...
         </p>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            <button class="btn btn-outline-success btn-sm" type="button" onclick="showRecentActivity()">
+                <i class="bi bi-clock-history me-1"></i> Cambios recientes
+            </button>
+            <button class="btn btn-outline-primary btn-sm" type="button" onclick="downloadAppBackup()">
+                <i class="bi bi-download me-1"></i> Descargar respaldo
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="selectAppBackup()">
+                <i class="bi bi-upload me-1"></i> Restaurar respaldo
+            </button>
+            <input type="file" id="backupFileInput" accept="application/json,.json" hidden
+                onchange="restoreAppBackup(event)">
+        </div>
 
         <div class="card overflow-hidden">
             <div class="card-body p-0">
@@ -152,6 +182,39 @@
                         </thead>
                         <tbody id="tableGeneralBody"></tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="catalogManagerModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold text-success">Administrar áreas y lugares</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-secondary">Los cambios se comparten. Renombrar una opción también actualiza los productos que la usan.</p>
+                    <div class="row g-4">
+                        <section class="col-md-6" aria-labelledby="areasCatalogTitle">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0" id="areasCatalogTitle">Áreas / categorías</h6>
+                                <button class="btn btn-success btn-sm" type="button" onclick="addMarketCatalogValue('areas')">Agregar</button>
+                            </div>
+                            <ul class="list-group" id="areasCatalogList"></ul>
+                        </section>
+                        <section class="col-md-6" aria-labelledby="placesCatalogTitle">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0" id="placesCatalogTitle">Lugares de compra</h6>
+                                <button class="btn btn-success btn-sm" type="button" onclick="addMarketCatalogValue('places')">Agregar</button>
+                            </div>
+                            <ul class="list-group" id="placesCatalogList"></ul>
+                        </section>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
                 </div>
             </div>
         </div>
@@ -216,7 +279,7 @@
                     <button type="button" class="btn btn-outline-secondary rounded-pill px-4"
                         data-bs-dismiss="modal">Cancelar</button>
                     <button type="button" class="btn btn-success rounded-pill px-4"
-                        onclick="saveGeneralProduct()">Guardar</button>
+                        id="saveProductButton" onclick="saveGeneralProduct()">Guardar</button>
                 </div>
             </div>
         </div>

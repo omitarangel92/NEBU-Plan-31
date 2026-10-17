@@ -48,32 +48,82 @@
   }
 
   .table {
-    min-width: 820px;
+    min-width: 0;
     font-size: 0.88rem;
   }
 
-  .table thead th {
-    padding: 0.72rem 0.65rem;
-    font-size: 0.67rem;
-    letter-spacing: 0.035em;
+  .table thead {
+    display: none;
+  }
+
+  .table tbody {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .table tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    background: var(--bs-body-bg);
   }
 
   .table tbody td {
-    padding: 0.65rem 0.65rem;
-    vertical-align: middle;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.6rem 0.7rem;
+    border: 0;
+    border-bottom: 1px solid var(--bs-border-color);
+    text-align: right !important;
+    overflow-wrap: anywhere;
   }
 
-  .table tbody td:first-child,
-  .table thead th:first-child {
-    padding-left: 0.8rem;
+  .table tbody td::before {
+    flex: 0 0 auto;
+    color: var(--bs-secondary-color);
+    content: attr(data-label);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-align: left;
   }
 
-  /* Botones dentro de la tabla: compactos sin perder usabilidad */
+  .table tbody td:nth-child(2) {
+    display: block;
+    grid-column: 1 / -1;
+    font-size: 1rem;
+    text-align: left !important;
+  }
+
+  .table tbody td:nth-child(2)::before {
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .table tbody td:nth-child(8) {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    border-bottom: 0;
+  }
+
+  .table tbody td:nth-child(8)::before {
+    margin-right: auto;
+  }
+
+  .table tbody td:first-child .form-select {
+    width: auto;
+    max-width: 6rem;
+  }
+
   .table .btn {
-    min-height: 34px;
+    min-height: 36px;
     padding: 0.35rem 0.55rem;
     font-size: 0.78rem;
-    white-space: nowrap;
   }
 
   /* Modal adaptado a pantallas pequeñas */
@@ -133,10 +183,6 @@
   .container.mt-4 > .d-flex.flex-wrap.justify-content-between.align-items-center.mb-3 > .d-flex .btn {
     font-size: 0.77rem;
     padding-inline: 0.45rem !important;
-  }
-
-  .table {
-    min-width: 780px;
   }
 
   .modal-dialog {

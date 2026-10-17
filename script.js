@@ -2,9 +2,12 @@
 // 1. IMPORTACIONES
 // ==========================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, signOut, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signOut, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+import { calculateConsumedCalories, escapeHtml, mergeMealChanges, parseNonNegativeNumber } from "./shared-logic.mjs";
+import { installBackupTools } from "./backup-tools.mjs";
+import { installActivityHistory } from "./activity-history.mjs";
 
 // ==========================================================================
 // 2. CONFIGURACIÓN E INICIALIZACIÓN
@@ -21,6 +24,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+installBackupTools(app, auth);
+installActivityHistory(app, auth);
 const functions = getFunctions(app, "us-central1");
 const calculateMacros = httpsCallable(functions, "calculateMacros");
 const authorizedUserIds = new Set([
@@ -35,11 +40,18 @@ let appInitialized = false;
 window.mealPlanData = []; 
 window.checkboxStates = {}; 
 let currentUserUid = null;
+let currentCalorieGoal = 2000;
+let preferredDay = null;
 let activeAuthUid = null;
 let stopPlanListener = null;
 let stopCheckboxListener = null;
 
 const sharedPlanRef = doc(db, "sharedData", "mainPlan");
+const activityHistoryRef = doc(db, "sharedData", "activityHistory");
+const PLAN_SCHEMA_VERSION = 1;
+const PLAN_MIGRATIONS = new Map([
+  [0, plan => plan]
+]);
 
 onAuthStateChanged(auth, user => {
   handleAuthState(user).catch(error => {
@@ -54,6 +66,9 @@ async function handleAuthState(user) {
     stopCheckboxListener?.();
     activeAuthUid = null;
     currentUserUid = null;
+    window.checkboxStates = {};
+    preferredDay = null;
+    currentCalorieGoal = 2000;
   }
   if (user?.isAnonymous) {
     await signOut(auth);
@@ -62,6 +77,8 @@ async function handleAuthState(user) {
   if (!user) {
     currentUserUid = null;
     activeAuthUid = null;
+    window.checkboxStates = {};
+    preferredDay = null;
     stopPlanListener?.();
     stopCheckboxListener?.();
     showAuthGate("login");
@@ -81,6 +98,7 @@ async function handleAuthState(user) {
     document.getElementById("appSection").hidden = false;
     return;
   }
+  await initializeSharedPlan();
   document.getElementById("authGate").hidden = true;
   document.getElementById("appSection").hidden = false;
 
@@ -89,7 +107,7 @@ async function handleAuthState(user) {
   activeAuthUid = user.uid;
   currentUserUid = user.uid;
 
-  stopPlanListener = onSnapshot(sharedPlanRef, docSnap => {
+  stopPlanListener = onSnapshot(sharedPlanRef, { includeMetadataChanges: true }, docSnap => {
     if (docSnap.exists()) {
       const data = docSnap.data();
       window.mealPlanData = data.plan || JSON.parse(JSON.stringify(defaultMealPlanData));
@@ -98,15 +116,10 @@ async function handleAuthState(user) {
         localStorage.setItem("fitplan_theme", data.theme);
         updateThemeIcon(data.theme, document.getElementById("themeIcon"));
       }
+      setPlanSyncStatus(docSnap.metadata.hasPendingWrites ? "Guardando..." : "Sincronizado");
     } else {
-      window.mealPlanData = JSON.parse(JSON.stringify(defaultMealPlanData));
-      setDoc(sharedPlanRef, {
-        plan: window.mealPlanData,
-        theme: "light"
-      }).catch(error => {
-        console.error("Error inicializando el plan:", error);
-        Swal.fire({ icon: "error", title: "Error", text: "No se pudo inicializar el plan nutricional." });
-      });
+      setPlanSyncStatus("No se encontró el plan compartido.", true);
+      return;
     }
 
     if (!appInitialized) {
@@ -125,14 +138,71 @@ async function handleAuthState(user) {
     if (docSnap.exists()) {
       const data = docSnap.data();
       window.checkboxStates = data.checkboxes || {};
+      currentCalorieGoal = Number.isFinite(Number(data.dailyCalorieGoal))
+        && Number(data.dailyCalorieGoal) >= 500
+        && Number(data.dailyCalorieGoal) <= 10000
+        ? Number(data.dailyCalorieGoal)
+        : 2000;
+      document.getElementById("dailyCalorieGoal").textContent = currentCalorieGoal.toLocaleString("es-CO");
+      const savedDay = Number(data.lastDay);
+      if (Number.isInteger(savedDay) && savedDay >= 1 && savedDay <= 30 && savedDay !== currentDay) {
+        preferredDay = savedDay;
+        if (appInitialized) {
+          currentDay = savedDay;
+          renderDaySelector();
+          loadDay(currentDay);
+        }
+      }
     } else {
       window.checkboxStates = {};
+      currentCalorieGoal = 2000;
+      document.getElementById("dailyCalorieGoal").textContent = "2.000";
     }
     loadCheckboxState();
   }, error => {
     console.error("Error sincronizando las marcas personales:", error);
     Swal.fire({ icon: "error", title: "Error", text: "No se pudieron sincronizar tus marcas personales." });
   });
+}
+
+async function initializeSharedPlan() {
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(sharedPlanRef);
+    if (!snapshot.exists()) {
+      transaction.set(sharedPlanRef, {
+        plan: JSON.parse(JSON.stringify(defaultMealPlanData)),
+        theme: "light",
+        schemaVersion: PLAN_SCHEMA_VERSION
+      });
+      return;
+    }
+    const data = snapshot.data();
+    if (!Array.isArray(data.plan)) {
+      throw new Error("El plan compartido tiene un formato inválido; no se modificaron sus datos.");
+    }
+    let version = Number(data.schemaVersion) || 0;
+    if (version > PLAN_SCHEMA_VERSION) {
+      throw new Error("El plan fue guardado por una versión más reciente de la aplicación.");
+    }
+    if (version < PLAN_SCHEMA_VERSION) {
+      let plan = data.plan;
+      while (version < PLAN_SCHEMA_VERSION) {
+        const migration = PLAN_MIGRATIONS.get(version);
+        if (!migration) throw new Error(`No existe una migración segura para la versión ${version}.`);
+        plan = migration(plan);
+        version++;
+      }
+      transaction.set(sharedPlanRef, { plan, schemaVersion: version }, { merge: true });
+    }
+  });
+}
+
+function setPlanSyncStatus(message, isError = false) {
+  const status = document.getElementById("planSyncStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("text-danger", isError);
+  status.classList.toggle("text-success", !isError && message === "Sincronizado");
 }
 
 function showAuthGate(mode, message = "") {
@@ -142,7 +212,10 @@ function showAuthGate(mode, message = "") {
   if (appSection) appSection.hidden = true;
   document.getElementById("loginPanel").hidden = mode !== "login";
   document.getElementById("verifyPanel").hidden = mode !== "verify";
-  document.getElementById("authMessage").textContent = message;
+  const authMessage = document.getElementById("authMessage");
+  authMessage.textContent = message;
+  authMessage.classList.remove("text-success");
+  authMessage.classList.add("text-danger");
 }
 
 window.loginWithEmail = async function(event) {
@@ -156,6 +229,29 @@ window.loginWithEmail = async function(event) {
     showAuthGate("login", "No se pudo iniciar sesión. Verifica el correo y la contraseña.");
   }
 };
+
+window.sendPasswordReset = async function() {
+  const email = document.getElementById("authEmail").value.trim().toLowerCase();
+  if (!email) {
+    document.getElementById("authMessage").textContent = "Escribe tu correo para enviarte el enlace de recuperación.";
+    document.getElementById("authEmail").focus();
+    return;
+  }
+  try {
+    await sendPasswordResetEmail(auth, email);
+    setAuthMessage("Si el correo corresponde a una cuenta, recibirás instrucciones para cambiar la contraseña.", false);
+  } catch (error) {
+    console.error("Error enviando recuperación de contraseña:", error);
+    setAuthMessage("No se pudo enviar el correo de recuperación. Verifica la dirección e inténtalo de nuevo.");
+  }
+};
+
+function setAuthMessage(message, isError = true) {
+  const authMessage = document.getElementById("authMessage");
+  authMessage.textContent = message;
+  authMessage.classList.toggle("text-danger", isError);
+  authMessage.classList.toggle("text-success", !isError);
+}
 
 window.sendVerificationEmail = async function() {
   const user = auth.currentUser;
@@ -2894,7 +2990,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function initApp() {
-  currentDay = getColombiaDayOfMonth();
+  currentDay = preferredDay || getColombiaDayOfMonth();
   renderDaySelector();
   loadDay(currentDay);
   setTimeout(() => {
@@ -2914,8 +3010,10 @@ function renderDaySelector() {
     btn.textContent = `Día ${dayData.day}`;
     btn.onclick = () => {
       currentDay = dayData.day;
+      preferredDay = currentDay;
       highlightSelectedDayButton();
       loadDay(currentDay);
+      saveLastSelectedDay(currentDay);
     };
     container.appendChild(btn);
   });
@@ -2945,59 +3043,65 @@ function renderMealsAndIngredients(meals) {
   accordion.innerHTML = "";
 
   meals.forEach((meal) => {
-    // Solución para evitar problemas con plantillas anidadas usando concatenación tradicional
-    const ingredientsHtml = meal.ingredients.map(ing => '<li>' + ing + '</li>').join('');
+    const ingredientsHtml = meal.ingredients.map(ing => `<li>${escapeHtml(ing)}</li>`).join("");
+    const mealDomId = `meal-${Array.from(String(meal.id), character => character.codePointAt(0).toString(16)).join("-")}`;
 
     const item = document.createElement("div");
     item.className = "accordion-item";
     item.innerHTML = `
-      <h2 class="accordion-header" id="heading-${meal.id}">
-        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${meal.id}" aria-expanded="false" aria-controls="collapse-${meal.id}">
+      <h2 class="accordion-header d-flex align-items-stretch" id="heading-${mealDomId}">
+        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${mealDomId}" aria-expanded="false" aria-controls="collapse-${mealDomId}">
           <div class="d-flex align-items-center w-100 justify-content-between pe-3">
             <div>
-              <i class="bi ${meal.icon} text-success me-2"></i>
-              <span class="meal-title">${meal.type}: ${meal.name}</span>
-              <button class="btn btn-sm btn-link text-secondary p-0 ms-2" onclick="event.stopPropagation(); window.editMeal('${meal.id}')" title="Editar Comida">
-                <i class="bi bi-pencil-square"></i>
-              </button>
+              <i class="bi ${escapeHtml(meal.icon)} text-success me-2"></i>
+                  <span class="meal-title">${escapeHtml(meal.type)}: ${escapeHtml(meal.name)}</span>
             </div>
-            <span class="badge-time"><i class="bi bi-clock me-1"></i>${meal.time}</span>
+            <span class="badge-time"><i class="bi bi-clock me-1"></i>${escapeHtml(meal.time)}</span>
           </div>
         </button>
+        <button class="btn btn-sm btn-link text-secondary px-3" type="button" data-edit-meal="${escapeHtml(meal.id)}"
+          aria-label="Editar ${escapeHtml(meal.name)}" title="Editar comida">
+          <i class="bi bi-pencil-square"></i>
+        </button>
       </h2>
-      <div id="collapse-${meal.id}" class="accordion-collapse collapse" aria-labelledby="heading-${meal.id}" data-bs-parent="#mealsAccordion">
+      <div id="collapse-${mealDomId}" class="accordion-collapse collapse" aria-labelledby="heading-${mealDomId}" data-bs-parent="#mealsAccordion">
         <div class="accordion-body">
           <div class="form-check mb-3">
-            <input class="form-check-input meal-checkbox" type="checkbox" id="check-${meal.id}" data-day="${currentDay}">
-            <label class="form-check-label fw-semibold text-success" for="check-${meal.id}">
+            <input class="form-check-input meal-checkbox" type="checkbox" id="${escapeHtml(`check-${meal.id}`)}" data-day="${currentDay}">
+            <label class="form-check-label fw-semibold text-success" for="${escapeHtml(`check-${meal.id}`)}">
               Marcar comida como consumida
             </label>
           </div>
           <h6 class="fw-bold text-secondary mb-2"><i class="bi bi-basket me-1"></i> Ingredientes:</h6>
           <ul class="mb-3 ps-3">${ingredientsHtml}</ul>
           <h6 class="fw-bold text-secondary mb-2"><i class="bi bi-journal-text me-1"></i> Preparación:</h6>
-          <p class="prep-box mb-3">${meal.prep}</p>
+          <p class="prep-box mb-3">${escapeHtml(meal.prep)}</p>
           <div class="table-responsive">
             <table class="table table-sm table-bordered table-nutrition mb-0">
               <thead><tr><th>Peso</th><th>Calorías</th><th>Proteínas</th><th>Carbos</th><th>Grasas</th><th>Azúcares</th></tr></thead>
               <tbody><tr>
-                <td>${meal.macros.weight}g</td>
-                <td>${meal.macros.calories} kcal</td>
-                <td>${meal.macros.protein}g</td>
-                <td>${meal.macros.carbs}g</td>
-                <td>${meal.macros.fats}g</td>
-                <td>${meal.macros.sugars}g</td>
+                <td>${escapeHtml(meal.macros.weight)}g</td>
+                <td>${escapeHtml(meal.macros.calories)} kcal</td>
+                <td>${escapeHtml(meal.macros.protein)}g</td>
+                <td>${escapeHtml(meal.macros.carbs)}g</td>
+                <td>${escapeHtml(meal.macros.fats)}g</td>
+                <td>${escapeHtml(meal.macros.sugars)}g</td>
               </tr></tbody>
             </table>
           </div>
         </div>
       </div>`;
     accordion.appendChild(item);
+      item.querySelector("[data-edit-meal]").addEventListener("click", event => {
+        window.editMeal(event.currentTarget.dataset.editMeal);
+      });
   });
 
   const allIngredients = [];
   meals.forEach(m => m.ingredients.forEach(i => allIngredients.push(i)));
-  const allIngredientsHtml = allIngredients.length ? allIngredients.map(ing => '<li class="py-1">' + ing + '</li>').join('') : '<li class="text-muted">Sin ingredientes.</li>';
+  const allIngredientsHtml = allIngredients.length
+    ? allIngredients.map(ing => `<li class="py-1">${escapeHtml(ing)}</li>`).join("")
+    : '<li class="text-muted">Sin ingredientes.</li>';
 
   const generalItem = document.createElement("div");
   generalItem.className = "accordion-item";
@@ -3050,16 +3154,13 @@ function updateMacrosAndProgress(meals) {
 }
 
 function updateConsumedCalories(meals) {
-  let consumed = 0;
-  meals.forEach(m => {
-    const cb = document.getElementById(`check-${m.id}`);
-    if (cb && cb.checked) consumed += m.macros.calories;
-  });
+  const consumed = calculateConsumedCalories(meals, window.checkboxStates[currentDay] || {});
+  document.getElementById("consumedCalories").textContent = consumed.toLocaleString("es-CO");
   updateCaloriesChart(consumed);
 }
 
 function updateCaloriesChart(consumedCalories) {
-  const targetCalories = 2000;
+  const targetCalories = currentCalorieGoal;
   const remaining = Math.max(0, targetCalories - consumedCalories);
   const canvasEl = document.getElementById("caloriesChart");
   if (!canvasEl) return;
@@ -3094,7 +3195,7 @@ function updateCaloriesChart(consumedCalories) {
   }
 }
 
-function saveCheckboxState() {
+async function saveCheckboxState() {
   const checkboxes = document.querySelectorAll(".meal-checkbox");
   const state = {};
   checkboxes.forEach(cb => { state[cb.id] = cb.checked; });
@@ -3106,12 +3207,30 @@ function saveCheckboxState() {
   if (dayData) updateConsumedCalories(dayData.meals);
 
   if (currentUserUid) {
-    setDoc(doc(db, "users", currentUserUid), { checkboxes: window.checkboxStates }, { merge: true });
+    setPlanSyncStatus("Guardando tus marcas...");
+    try {
+      const userRef = doc(db, "users", currentUserUid);
+      await runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(userRef);
+        const data = snapshot.exists() ? snapshot.data() : {};
+        transaction.set(userRef, {
+          checkboxes: {
+            ...(data.checkboxes || {}),
+            [currentDay]: state
+          }
+        }, { merge: true });
+      });
+      setPlanSyncStatus("Sincronizado");
+    } catch (error) {
+      console.error("Error guardando las marcas personales:", error);
+      setPlanSyncStatus("No se guardaron tus marcas. Revisa la conexión e inténtalo de nuevo.", true);
+    }
   }
 }
 
 function loadCheckboxState() {
   const state = window.checkboxStates[currentDay];
+  document.querySelectorAll(".meal-checkbox").forEach(cb => { cb.checked = false; });
   if (state) {
     for (const id in state) {
       const cb = document.getElementById(id);
@@ -3121,6 +3240,81 @@ function loadCheckboxState() {
     document.querySelectorAll(".meal-checkbox").forEach(cb => cb.checked = false);
   }
   updateProgress();
+  const dayData = window.mealPlanData.find(d => d.day === currentDay);
+  if (dayData) updateConsumedCalories(dayData.meals);
+}
+
+async function saveLastSelectedDay(day) {
+  if (!currentUserUid) return;
+  try {
+    await setDoc(doc(db, "users", currentUserUid), { lastDay: day }, { merge: true });
+  } catch (error) {
+    console.error("Error guardando el último día seleccionado:", error);
+    setPlanSyncStatus("No se pudo guardar el día seleccionado.", true);
+  }
+}
+
+window.setDailyCalorieGoal = async function() {
+  const result = await Swal.fire({
+    title: "Meta diaria de calorías",
+    text: "Es una referencia ajustable, no una recomendación médica personalizada.",
+    input: "number",
+    inputValue: currentCalorieGoal,
+    inputAttributes: { min: "500", max: "10000", step: "50" },
+    showCancelButton: true,
+    confirmButtonText: "Guardar",
+    cancelButtonText: "Cancelar",
+    inputValidator: value => {
+      const goal = Number(value);
+      return Number.isInteger(goal) && goal >= 500 && goal <= 10000
+        ? undefined
+        : "Ingresa un valor entero entre 500 y 10.000 kcal.";
+    }
+  });
+  if (!result.isConfirmed || !currentUserUid) return;
+  const goal = Number(result.value);
+  try {
+    await setDoc(doc(db, "users", currentUserUid), { dailyCalorieGoal: goal }, { merge: true });
+    currentCalorieGoal = goal;
+    document.getElementById("dailyCalorieGoal").textContent = goal.toLocaleString("es-CO");
+    updateConsumedCalories(window.mealPlanData.find(day => day.day === currentDay)?.meals || []);
+    await savePlanActivity(`Ajustó su meta diaria a ${goal.toLocaleString("es-CO")} kcal`);
+  } catch (error) {
+    console.error("Error guardando la meta diaria:", error);
+    setPlanSyncStatus("No se pudo guardar la meta de calorías.", true);
+    Swal.fire({ icon: "error", title: "Error", text: "La meta no se guardó. Inténtalo de nuevo." });
+  }
+};
+
+async function savePlanActivity(action) {
+  if (!currentUserUid) return;
+  const entry = {
+    action,
+    actor: auth.currentUser?.email || "Usuario autorizado",
+    timestamp: new Date().toISOString()
+  };
+  try {
+    await runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(activityHistoryRef);
+      const entries = snapshot.exists() && Array.isArray(snapshot.data().entries)
+        ? snapshot.data().entries
+        : [];
+      transaction.set(activityHistoryRef, {
+        entries: [entry, ...entries].slice(0, 50)
+      }, { merge: true });
+    });
+  } catch (error) {
+    console.error("Error guardando el historial de actividad:", error);
+    setPlanSyncStatus("La meta se guardó, pero no se pudo registrar en el historial.", true);
+    await Swal.fire({
+      toast: true,
+      position: "bottom-end",
+      icon: "warning",
+      title: "La meta se guardó; falló el historial",
+      timer: 5000,
+      showConfirmButton: false
+    });
+  }
 }
 
 function updateProgress() {
@@ -3167,6 +3361,8 @@ function updateThemeIcon(theme, iconElement) {
 }
 
 let editModalInstance = null;
+let editingMealOriginal = null;
+let editingMealDay = null;
 
 window.editMeal = function(mealId) {
   const dayIndex = window.mealPlanData.findIndex(d => d.day === currentDay);
@@ -3175,6 +3371,8 @@ window.editMeal = function(mealId) {
   if (mealIndex === -1) return;
 
   const meal = window.mealPlanData[dayIndex].meals[mealIndex];
+  editingMealOriginal = JSON.parse(JSON.stringify(meal));
+  editingMealDay = currentDay;
 
   document.getElementById('editMealId').value = mealId;
   document.getElementById('editName').value = meal.name;
@@ -3194,41 +3392,100 @@ window.editMeal = function(mealId) {
   editModalInstance.show();
 }
 
-window.saveMealChanges = function() {
+window.saveMealChanges = async function() {
   const mealId = document.getElementById('editMealId').value;
-  
-  const dayIndex = window.mealPlanData.findIndex(d => d.day === currentDay);
-  if (dayIndex === -1) return;
-  const mealIndex = window.mealPlanData[dayIndex].meals.findIndex(m => m.id === mealId);
-  if (mealIndex === -1) return;
-
-  const meal = window.mealPlanData[dayIndex].meals[mealIndex];
-
-  meal.name = document.getElementById('editName').value || meal.name;
-  meal.time = document.getElementById('editTime').value || meal.time;
-  meal.prep = document.getElementById('editPrep').value || meal.prep;
-  
-  const ingText = document.getElementById('editIngredients').value;
-  if (ingText.trim() !== "") {
-    meal.ingredients = ingText.split('\n').map(ing => ing.trim()).filter(ing => ing !== "");
+  if (!editingMealOriginal || editingMealOriginal.id !== mealId || !currentUserUid) return;
+  const proposed = {
+    ...editingMealOriginal,
+    name: document.getElementById("editName").value.trim(),
+    time: document.getElementById("editTime").value.trim(),
+    prep: document.getElementById("editPrep").value.trim(),
+    ingredients: document.getElementById("editIngredients").value
+      .split("\n").map(ingredient => ingredient.trim()).filter(Boolean),
+    macros: { ...editingMealOriginal.macros }
+  };
+  if (!proposed.name || !proposed.time) {
+    Swal.fire({ icon: "warning", title: "Faltan datos", text: "El nombre y el horario de la comida son obligatorios." });
+    return;
+  }
+  for (const [field, inputId] of Object.entries({
+    calories: "editCals",
+    protein: "editProt",
+    carbs: "editCarbs",
+    fats: "editFats",
+    sugars: "editSugars"
+  })) {
+    const value = parseNonNegativeNumber(document.getElementById(inputId).value);
+    if (value === null) {
+      Swal.fire({ icon: "warning", title: "Macro no válido", text: "Ingresa un valor numérico igual o mayor que cero para cada macro." });
+      return;
+    }
+    proposed.macros[field] = value;
   }
 
-  meal.macros.calories = Number(document.getElementById('editCals').value) || meal.macros.calories;
-  meal.macros.protein = Number(document.getElementById('editProt').value) || meal.macros.protein;
-  meal.macros.carbs = Number(document.getElementById('editCarbs').value) || meal.macros.carbs;
-  meal.macros.fats = Number(document.getElementById('editFats').value) || meal.macros.fats;
-  meal.macros.sugars = Number(document.getElementById('editSugars').value) || meal.macros.sugars;
+  const saveButton = document.getElementById("saveMealButton");
+  saveButton.disabled = true;
+  setPlanSyncStatus("Guardando cambios del plan...");
+  try {
+    const activityEntry = {
+      action: `Editó ${proposed.name} del día ${editingMealDay}`,
+      actor: auth.currentUser?.email || "Usuario autorizado",
+      timestamp: new Date().toISOString()
+    };
+    await runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(sharedPlanRef);
+      const activitySnapshot = await transaction.get(activityHistoryRef);
+      if (!snapshot.exists() || !Array.isArray(snapshot.data().plan)) {
+        throw new Error("El plan compartido no está disponible o tiene un formato inválido.");
+      }
+      const latestPlan = snapshot.data().plan;
+      const day = latestPlan.find(entry => entry.day === editingMealDay);
+      const mealIndex = day?.meals?.findIndex(entry => entry.id === mealId) ?? -1;
+      if (mealIndex < 0) {
+        throw new Error("Esta comida fue eliminada desde otro dispositivo y no se guardaron los cambios.");
+      }
 
-  setDoc(sharedPlanRef, { plan: window.mealPlanData }, { merge: true })
-    .then(() => {
-      editModalInstance.hide();
-      loadDay(currentDay);
-    })
-    .catch(error => {
-      console.error("Error guardando:", error);
-      Swal.fire({ icon: "error", title: "Error", text: "No se pudieron guardar los cambios en la nube." });
+      const latestMeal = day.meals[mealIndex];
+      const result = mergeMealChanges(editingMealOriginal, latestMeal, proposed);
+      if (result.conflicts.length) {
+        const conflict = new Error(`Otra persona modificó al mismo tiempo: ${result.conflicts.join(", ")}.`);
+        conflict.code = "meal-edit-conflict";
+        throw conflict;
+      }
+      const updatedPlan = latestPlan.map(entry => entry.day !== editingMealDay
+        ? entry
+        : {
+          ...entry,
+          meals: entry.meals.map(meal => meal.id === mealId ? result.merged : meal)
+        });
+      transaction.set(sharedPlanRef, { plan: updatedPlan }, { merge: true });
+      const history = activitySnapshot.exists() && Array.isArray(activitySnapshot.data().entries)
+        ? activitySnapshot.data().entries
+        : [];
+      transaction.set(activityHistoryRef, {
+        entries: [activityEntry, ...history].slice(0, 50)
+      }, { merge: true });
     });
-}
+    setPlanSyncStatus("Sincronizado");
+    editingMealOriginal = null;
+    editModalInstance.hide();
+  } catch (error) {
+    console.error("Error guardando cambios del plan:", error);
+    if (error.code === "meal-edit-conflict") {
+      setPlanSyncStatus("Conflicto de edición; no se sobrescribieron los cambios.", true);
+      await Swal.fire({
+        icon: "warning",
+        title: "La comida cambió en otro dispositivo",
+        text: `${error.message} Cierra este formulario, vuelve a abrir la comida y aplica nuevamente tu edición.`
+      });
+    } else {
+      setPlanSyncStatus("No se guardaron los cambios. Revisa la conexión e inténtalo de nuevo.", true);
+      Swal.fire({ icon: "error", title: "Error al guardar", text: "No se pudieron guardar los cambios del plan." });
+    }
+  } finally {
+    saveButton.disabled = false;
+  }
+};
 
 window.autoCalculateMacros = async function() {
   const ingredients = document.getElementById("editIngredients").value.trim();

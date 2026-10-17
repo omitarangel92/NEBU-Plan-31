@@ -30,6 +30,9 @@
                     </div>
                     <button class="btn btn-success w-100" type="submit">Iniciar sesión</button>
                 </form>
+                <button class="btn btn-link btn-sm px-0 mt-2" type="button" onclick="sendPasswordReset()">
+                    Olvidé mi contraseña
+                </button>
                 <div id="verifyPanel" hidden>
                     <p>Debes verificar tu correo antes de entrar.</p>
                     <button class="btn btn-outline-success w-100 mb-2" type="button" onclick="sendVerificationEmail()">Enviar correo de verificación</button>
@@ -59,7 +62,22 @@
         <div class="container mt-4">
             <!-- Selector de Días -->
             <div class="mb-4">
-                <label class="form-label fw-bold text-secondary mb-2"><i class="bi bi-calendar3 me-1"></i> Selecciona el Día del Plan:</label>
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <label class="form-label fw-bold text-secondary mb-2"><i class="bi bi-calendar3 me-1"></i> Selecciona el Día del Plan:</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-success btn-sm" type="button" onclick="showRecentActivity()">
+                            <i class="bi bi-clock-history me-1"></i> Cambios recientes
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm" type="button" onclick="downloadAppBackup()">
+                            <i class="bi bi-download me-1"></i> Descargar respaldo
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="selectAppBackup()">
+                            <i class="bi bi-upload me-1"></i> Restaurar respaldo
+                        </button>
+                        <input type="file" id="backupFileInput" accept="application/json,.json" hidden
+                            onchange="restoreAppBackup(event)">
+                    </div>
+                </div>
                 <div class="day-selector-container" id="daySelector"></div>
             </div>
 
@@ -67,9 +85,16 @@
             <div class="row g-3 mb-4">
                 <div class="col-lg-4 col-md-5">
                     <div class="macro-card text-center h-100 d-flex flex-column justify-content-center py-4">
-                        <h6 class="text-muted mb-2 fw-semibold">Total Calorías Consumidas</h6>
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                            <h6 class="text-muted mb-0 fw-semibold">Resumen de calorías</h6>
+                            <button class="btn btn-link btn-sm p-0" type="button" onclick="setDailyCalorieGoal()">
+                                Meta: <strong id="dailyCalorieGoal">2.000</strong> kcal
+                            </button>
+                        </div>
                         <div style="max-width: 150px; margin: 0 auto;"><canvas id="caloriesChart"></canvas></div>
-                        <h3 class="mt-3 fw-bold mb-0 text-success" id="totalCalories">0 kcal</h3>
+                        <p class="small text-muted mt-2 mb-0">Consumidas: <strong id="consumedCalories">0</strong> kcal</p>
+                        <h3 class="mt-2 fw-bold mb-0 text-success" id="totalCalories">0 kcal</h3>
+                        <small class="text-muted">Total de calorías del plan</small>
                     </div>
                 </div>
                 <div class="col-lg-8 col-md-7">
@@ -84,7 +109,7 @@
                             </div>
                         </div>
                         <div class="mt-3">
-                            <div class="d-flex justify-content-between mb-1"><small class="fw-semibold">Cumplimiento del Día</small><small id="progressText" class="fw-bold">0%</small></div>
+                            <div class="d-flex justify-content-between mb-1"><small class="fw-semibold">Comidas registradas</small><small id="progressText" class="fw-bold">0%</small></div>
                             <div class="progress" style="height: 10px; border-radius: 5px;"><div id="progressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div></div>
                         </div>
                     </div>
@@ -96,6 +121,9 @@
             </div>
             
             <div class="accordion meal-accordion" id="mealsAccordion"></div>
+            <p id="planSyncStatus" class="small text-secondary mt-2" role="status" aria-live="polite">
+                Conectando con el plan compartido...
+            </p>
         </div>
     </div>
 
@@ -110,12 +138,12 @@
                 <div class="modal-body">
                     <input type="hidden" id="editMealId">
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Nombre del Plato</label>
-                        <input type="text" class="form-control" id="editName">
+                        <label class="form-label small fw-bold" for="editName">Nombre del Plato</label>
+                        <input type="text" class="form-control" id="editName" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">Horario</label>
-                        <input type="text" class="form-control" id="editTime">
+                        <label class="form-label small fw-bold" for="editTime">Horario</label>
+                        <input type="text" class="form-control" id="editTime" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Ingredientes (un ingrediente por línea)</label>
@@ -123,22 +151,23 @@
                         <button type="button" class="btn btn-outline-primary btn-sm mt-2 w-100 fw-semibold" id="btnAutoCalc" onclick="autoCalculateMacros()">
                             <i class="bi bi-magic me-1"></i> Calcular Macros Automáticamente con IA (Groq)
                         </button>
+                        <small class="form-text">Los valores de IA son estimaciones; revisa etiquetas y recomendaciones profesionales.</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Preparación</label>
                         <textarea class="form-control" id="editPrep" rows="3"></textarea>
                     </div>
                     <div class="row g-2">
-                        <div class="col-4"><label class="form-label small fw-bold">Calorías</label><input type="number" class="form-control" id="editCals"></div>
-                        <div class="col-4"><label class="form-label small fw-bold">Proteína (g)</label><input type="number" class="form-control" id="editProt"></div>
-                        <div class="col-4"><label class="form-label small fw-bold">Carbos (g)</label><input type="number" class="form-control" id="editCarbs"></div>
-                        <div class="col-6 mt-2"><label class="form-label small fw-bold">Grasas (g)</label><input type="number" class="form-control" id="editFats"></div>
-                        <div class="col-6 mt-2"><label class="form-label small fw-bold">Azúcares (g)</label><input type="number" class="form-control" id="editSugars"></div>
+                        <div class="col-4"><label class="form-label small fw-bold" for="editCals">Calorías</label><input type="number" class="form-control" id="editCals" min="0" required></div>
+                        <div class="col-4"><label class="form-label small fw-bold" for="editProt">Proteína (g)</label><input type="number" class="form-control" id="editProt" min="0" required></div>
+                        <div class="col-4"><label class="form-label small fw-bold" for="editCarbs">Carbos (g)</label><input type="number" class="form-control" id="editCarbs" min="0" required></div>
+                        <div class="col-6 mt-2"><label class="form-label small fw-bold" for="editFats">Grasas (g)</label><input type="number" class="form-control" id="editFats" min="0" required></div>
+                        <div class="col-6 mt-2"><label class="form-label small fw-bold" for="editSugars">Azúcares (g)</label><input type="number" class="form-control" id="editSugars" min="0" required></div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-success rounded-pill px-4" onclick="saveMealChanges()">Guardar Cambios</button>
+                    <button type="button" class="btn btn-success rounded-pill px-4" id="saveMealButton" onclick="saveMealChanges()">Guardar Cambios</button>
                 </div>
             </div>
         </div>

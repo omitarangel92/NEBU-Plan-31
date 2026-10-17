@@ -1,6 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, runTransaction, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, signOut, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signOut, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { calculateMarketTotals, escapeHtml, migrateMarketCatalogs, parseNonNegativeNumber, uniqueValues } from "./shared-logic.mjs";
+import { installBackupTools } from "./backup-tools.mjs";
+import { installActivityHistory } from "./activity-history.mjs";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA8oIEjox4y8vm7vsnwd0JQaixiw_6Chvs",
@@ -14,14 +17,17 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+installBackupTools(app, auth);
+installActivityHistory(app, auth);
 const authorizedUserIds = new Set([
   "khWRDuGHOxbih1kTdgLxgiv6Rd52",
   "eBt7BBTdc4MLRzQx3arbgVxjM2F3"
 ]);
 
 const sharedMarketRef = doc(db, "sharedData", "marketCompleteData");
+const activityHistoryRef = doc(db, "sharedData", "activityHistory");
 const DEFAULT_MARKET_BUDGET = 400000;
-const MARKET_SETUP_VERSION = 1;
+const MARKET_SETUP_VERSION = 2;
 const NUTRITION_FRUITS = [
   { concept: "Papaya", aliases: ["papaya", "papayas"] },
   { concept: "Banano", aliases: ["banano", "bananos", "banana", "bananas"] },
@@ -266,7 +272,12 @@ function applyInitialMarketSetup(state) {
     });
   });
 
-  return { ...state, generalItems };
+  return {
+    ...state,
+    generalItems,
+    areas: uniqueValues([...(state.areas || []), ...generalItems.map(item => item.area)]),
+    places: uniqueValues([...(state.places || []), ...generalItems.map(item => item.place)])
+  };
 }
 
 window.marketState = createDefaultMarketState();
@@ -372,7 +383,10 @@ function showMarketAuthGate(mode, message = "") {
   document.getElementById("marketAppSection").hidden = true;
   document.getElementById("loginPanel").hidden = mode !== "login";
   document.getElementById("verifyPanel").hidden = mode !== "verify";
-  document.getElementById("authMessage").textContent = message;
+  const authMessage = document.getElementById("authMessage");
+  authMessage.textContent = message;
+  authMessage.classList.remove("text-success");
+  authMessage.classList.add("text-danger");
 }
 
 window.loginWithEmail = async function(event) {
@@ -386,6 +400,29 @@ window.loginWithEmail = async function(event) {
     showMarketAuthGate("login", "No se pudo iniciar sesión. Verifica el correo y la contraseña.");
   }
 };
+
+window.sendPasswordReset = async function() {
+  const email = document.getElementById("authEmail").value.trim().toLowerCase();
+  if (!email) {
+    document.getElementById("authMessage").textContent = "Escribe tu correo para enviarte el enlace de recuperación.";
+    document.getElementById("authEmail").focus();
+    return;
+  }
+  try {
+    await sendPasswordResetEmail(auth, email);
+    setAuthMessage("Si el correo corresponde a una cuenta, recibirás instrucciones para cambiar la contraseña.", false);
+  } catch (error) {
+    console.error("Error enviando recuperación de contraseña:", error);
+    setAuthMessage("No se pudo enviar el correo de recuperación. Verifica la dirección e inténtalo de nuevo.");
+  }
+};
+
+function setAuthMessage(message, isError = true) {
+  const authMessage = document.getElementById("authMessage");
+  authMessage.textContent = message;
+  authMessage.classList.toggle("text-danger", isError);
+  authMessage.classList.toggle("text-success", !isError);
+}
 
 window.sendVerificationEmail = async function() {
   const user = auth.currentUser;
@@ -443,15 +480,17 @@ async function initializeSharedMarket() {
       throw new Error("Los datos guardados de la lista no tienen un formato válido. No se modificaron.");
     }
 
-    const { state, needsMigration } = normalizeMarketState(storedData);
+    const normalized = normalizeMarketState(storedData);
     const setupVersion = Number(snapshot.data().marketSetupVersion) || 0;
-    if (setupVersion < MARKET_SETUP_VERSION) {
+    let state = normalized.state;
+    if (setupVersion < 1) {
+      state = applyInitialMarketSetup(state);
+    }
+    if (setupVersion < MARKET_SETUP_VERSION || normalized.needsMigration) {
       transaction.set(sharedMarketRef, {
-        data: applyInitialMarketSetup(state),
+        data: migrateMarketCatalogs(state),
         marketSetupVersion: MARKET_SETUP_VERSION
       }, { merge: true });
-    } else if (needsMigration) {
-      transaction.set(sharedMarketRef, { data: state }, { merge: true });
     }
   });
 
@@ -486,7 +525,11 @@ function normalizeMarketState(data) {
     && Number.isFinite(parsedBudget);
   const productIds = new Set();
   let needsMigration = !hasValidBudget
-    || !["light", "dark"].includes(data.theme);
+    || !["light", "dark"].includes(data.theme)
+    || !Array.isArray(data.areas)
+    || !Array.isArray(data.places)
+    || (Array.isArray(data.areas) && uniqueValues(data.areas).length !== data.areas.length)
+    || (Array.isArray(data.places) && uniqueValues(data.places).length !== data.places.length);
   data.generalItems.forEach(item => {
     if (!item || typeof item !== "object") {
       needsMigration = true;
@@ -507,9 +550,13 @@ function normalizeMarketState(data) {
       || Number(item.qty) < 1) {
       needsMigration = true;
     }
+    if (typeof item.area === "string"
+      && (!Array.isArray(data.areas) || !data.areas.includes(item.area))) needsMigration = true;
+    if (typeof item.place === "string"
+      && (!Array.isArray(data.places) || !data.places.includes(item.place))) needsMigration = true;
   });
   const usedIds = new Set();
-  const state = {
+  const state = migrateMarketCatalogs({
     ...data,
     generalBudget: hasValidBudget ? parsedBudget : DEFAULT_MARKET_BUDGET,
     theme: ["light", "dark"].includes(data.theme) ? data.theme : "light",
@@ -534,7 +581,7 @@ function normalizeMarketState(data) {
         qty: Number.isFinite(qty) && qty >= 1 ? qty : 1
       };
     })
-  };
+  });
   return { state, needsMigration };
 }
 
@@ -579,7 +626,7 @@ function initThemeToggle() {
   toggleBtn.addEventListener("click", () => {
     const current = htmlElement.getAttribute("data-bs-theme");
     const next = current === "dark" ? "light" : "dark";
-    saveData(state => ({ ...state, theme: next }));
+    saveData(state => ({ ...state, theme: next }), "Cambió el tema de la lista");
   });
 }
 
@@ -612,6 +659,14 @@ window.filterGeneralTable = function() {
   renderGeneralTable();
 };
 
+window.clearMarketFilters = function() {
+  document.getElementById("searchConcept").value = "";
+  document.getElementById("filterStatus").value = "";
+  document.getElementById("filterArea").value = "";
+  document.getElementById("filterPlace").value = "";
+  renderGeneralTable();
+};
+
 function renderGeneralTable() {
   const tbody = document.getElementById("tableGeneralBody");
   if (!tbody) return;
@@ -623,7 +678,7 @@ function renderGeneralTable() {
   const areaFilter = document.getElementById("filterArea")?.value || "";
   const placeFilter = document.getElementById("filterPlace")?.value || "";
 
-  const fullSpent = calculateTotalForStatuses(window.marketState.generalItems, ["SI", "YA"]);
+  const totals = calculateMarketTotals(window.marketState.generalItems, window.marketState.generalBudget);
   const siTotal = calculateTotalForStatuses(window.marketState.generalItems, ["SI"]);
 
   let visibleCount = 0;
@@ -638,22 +693,22 @@ function renderGeneralTable() {
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td class="ps-3">
+      <td class="ps-3" data-label="Estado">
         <select class="form-select form-select-sm fw-semibold" onchange="updateGenStatus(${index}, this.value)">
           <option value="NO" ${item.status === "NO" ? "selected" : ""}>NO</option>
           <option value="SI" ${item.status === "SI" ? "selected" : ""}>SI</option>
           <option value="YA" ${item.status === "YA" ? "selected" : ""}>YA</option>
         </select>
       </td>
-      <td class="fw-semibold">${escapeHtml(item.concept)}</td>
-      <td><span class="badge bg-secondary-subtle text-secondary border">${escapeHtml(item.area)}</span></td>
-      <td>${escapeHtml(item.place || "—")}</td>
-      <td class="text-end">$${item.price.toLocaleString("es-CO")}</td>
-      <td class="text-center">${item.qty}</td>
-      <td class="text-end fw-bold">$${total.toLocaleString("es-CO")}</td>
-      <td class="text-center pe-3">
-        <button class="btn btn-sm btn-link text-primary p-0 me-2" onclick="openEditGeneralModal(${index})"><i class="bi bi-pencil-fill fs-6"></i></button>
-        <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteGeneralItem(${index})"><i class="bi bi-trash-fill fs-6"></i></button>
+      <td class="fw-semibold" data-label="Producto">${escapeHtml(item.concept)}</td>
+      <td data-label="Área"><span class="badge bg-secondary-subtle text-secondary border">${escapeHtml(item.area)}</span></td>
+      <td data-label="Lugar de compra">${escapeHtml(item.place || "—")}</td>
+      <td class="text-end" data-label="Precio unitario">$${item.price.toLocaleString("es-CO")}</td>
+      <td class="text-center" data-label="Cantidad">${item.qty}</td>
+      <td class="text-end fw-bold" data-label="Total">$${total.toLocaleString("es-CO")}</td>
+      <td class="text-center pe-3" data-label="Acciones">
+        <button class="btn btn-sm btn-link text-primary p-0 me-2" aria-label="Editar ${escapeHtml(item.concept)}" onclick="openEditGeneralModal(${index})"><i class="bi bi-pencil-fill fs-6"></i></button>
+        <button class="btn btn-sm btn-link text-danger p-0" aria-label="Eliminar ${escapeHtml(item.concept)}" onclick="deleteGeneralItem(${index})"><i class="bi bi-trash-fill fs-6"></i></button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -662,16 +717,16 @@ function renderGeneralTable() {
   const budget = Number.isFinite(Number(window.marketState.generalBudget))
     ? Number(window.marketState.generalBudget)
     : DEFAULT_MARKET_BUDGET;
-  const remaining = budget - fullSpent;
-
   const countTitle = document.getElementById("itemCountTitle");
   if (countTitle) countTitle.textContent = `Lista Completa (${visibleCount} Ítems)`;
 
   document.getElementById("genBudget").textContent = `$${budget.toLocaleString("es-CO")}`;
-  document.getElementById("genTotal").textContent = `$${fullSpent.toLocaleString("es-CO")}`;
-  document.getElementById("genRemaining").textContent = `$${remaining.toLocaleString("es-CO")}`;
+  document.getElementById("genTotal").textContent = `$${totals.purchased.toLocaleString("es-CO")}`;
+  document.getElementById("genPending").textContent = `$${totals.pending.toLocaleString("es-CO")}`;
+  document.getElementById("genRemaining").textContent = `$${totals.remaining.toLocaleString("es-CO")}`;
   document.getElementById("siTotal").textContent = `$${siTotal.toLocaleString("es-CO")}`;
   document.getElementById("siTotalCard").hidden = statusFilter !== "SI";
+  renderCatalogLists();
 }
 
 function calculateTotalForStatuses(items, statuses) {
@@ -683,14 +738,8 @@ function calculateTotalForStatuses(items, statuses) {
 }
 
 function updateMarketFilters() {
-  const areas = [...new Set(window.marketState.generalItems
-    .map(item => item.area.trim())
-    .filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "es"));
-  const places = [...new Set(window.marketState.generalItems
-    .map(item => item.place.trim())
-    .filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "es"));
+  const areas = uniqueValues(window.marketState.areas || []);
+  const places = uniqueValues(window.marketState.places || []);
 
   updateFilterOptions(document.getElementById("filterArea"), "Área: Todas", areas);
   updateFilterOptions(document.getElementById("filterPlace"), "Lugar de compra: Todos", places);
@@ -704,23 +753,156 @@ function updateFilterOptions(select, placeholder, values) {
   if (values.includes(selectedValue)) select.value = selectedValue;
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, character => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[character]);
+function catalogLabel(type) {
+  return type === "areas" ? "área" : "lugar de compra";
+}
+
+function canonicalCatalogValue(values, value) {
+  const normalized = normalizeConcept(value);
+  return values.find(entry => normalizeConcept(entry) === normalized) || value;
+}
+
+function renderCatalogLists() {
+  for (const type of ["areas", "places"]) {
+    const list = document.getElementById(type === "areas" ? "areasCatalogList" : "placesCatalogList");
+    if (!list) continue;
+    list.replaceChildren();
+    const values = uniqueValues(window.marketState[type] || []);
+    if (!values.length) {
+      const empty = document.createElement("li");
+      empty.className = "list-group-item text-secondary small";
+      empty.textContent = "Todavía no hay opciones.";
+      list.appendChild(empty);
+      continue;
+    }
+    values.forEach(value => {
+      const row = document.createElement("li");
+      row.className = "list-group-item d-flex align-items-center justify-content-between gap-2";
+      const name = document.createElement("span");
+      name.className = "text-break";
+      name.textContent = value;
+      const actions = document.createElement("span");
+      actions.className = "d-flex gap-1 flex-shrink-0";
+      const rename = document.createElement("button");
+      rename.type = "button";
+      rename.className = "btn btn-outline-secondary btn-sm";
+      rename.textContent = "Renombrar";
+      rename.addEventListener("click", () => renameMarketCatalogValue(type, value));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn btn-outline-danger btn-sm";
+      remove.textContent = "Eliminar";
+      remove.addEventListener("click", () => deleteMarketCatalogValue(type, value));
+      actions.append(rename, remove);
+      row.append(name, actions);
+      list.appendChild(row);
+    });
+  }
+}
+
+window.openCatalogManager = function() {
+  renderCatalogLists();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("catalogManagerModal")).show();
+};
+
+window.addMarketCatalogValue = async function(type) {
+  const label = catalogLabel(type);
+  const result = await Swal.fire({
+    title: `Agregar ${label}`,
+    input: "text",
+    inputPlaceholder: `Nombre de ${label}`,
+    showCancelButton: true,
+    confirmButtonText: "Agregar",
+    cancelButtonText: "Cancelar",
+    inputValidator: value => value.trim() ? undefined : `Escribe el nombre de ${label}.`
+  });
+  if (!result.isConfirmed) return;
+  const value = result.value.trim();
+  const saved = await saveData(state => {
+    const catalog = uniqueValues(state[type] || []);
+    if (catalog.some(entry => normalizeConcept(entry) === normalizeConcept(value))) {
+      throw new Error(`Ya existe ${label} con ese nombre.`);
+    }
+    return { ...state, [type]: uniqueValues([...catalog, value]) };
+  }, `Agregó la opción ${value} a ${label}`);
+  if (saved) renderCatalogLists();
+};
+
+async function renameMarketCatalogValue(type, oldValue) {
+  const label = catalogLabel(type);
+  const result = await Swal.fire({
+    title: `Renombrar ${label}`,
+    input: "text",
+    inputValue: oldValue,
+    showCancelButton: true,
+    confirmButtonText: "Guardar",
+    cancelButtonText: "Cancelar",
+    inputValidator: value => value.trim() ? undefined : `Escribe el nombre de ${label}.`
+  });
+  if (!result.isConfirmed) return;
+  const newValue = result.value.trim();
+  if (newValue === oldValue) return;
+  const saved = await saveData(state => {
+    const catalog = state[type] || [];
+    if (!catalog.includes(oldValue)) {
+      throw new Error(`La opción "${oldValue}" ya fue cambiada desde otro dispositivo.`);
+    }
+    if (catalog.some(entry => entry !== oldValue && normalizeConcept(entry) === normalizeConcept(newValue))) {
+      throw new Error(`Ya existe ${label} con ese nombre.`);
+    }
+    const field = type === "areas" ? "area" : "place";
+    const generalItems = state.generalItems.map(item =>
+      item[field] === oldValue ? { ...item, [field]: newValue } : item
+    );
+    return {
+      ...state,
+      [type]: uniqueValues(catalog.map(entry => entry === oldValue ? newValue : entry)),
+      generalItems
+    };
+  }, `Renombró ${label} ${oldValue} a ${newValue}`);
+  if (saved) renderCatalogLists();
+}
+
+async function deleteMarketCatalogValue(type, value) {
+  const label = catalogLabel(type);
+  const field = type === "areas" ? "area" : "place";
+  if (window.marketState.generalItems.some(item => item[field] === value)) {
+    await Swal.fire({
+      icon: "info",
+      title: `No se puede eliminar ${label}`,
+      text: `Primero cambia o elimina los productos que usan "${value}".`
+    });
+    return;
+  }
+  const result = await Swal.fire({
+    icon: "warning",
+    title: `¿Eliminar ${label}?`,
+    text: `Se quitará "${value}" de las opciones disponibles.`,
+    showCancelButton: true,
+    confirmButtonText: "Eliminar",
+    cancelButtonText: "Cancelar"
+  });
+  if (!result.isConfirmed) return;
+  const saved = await saveData(state => {
+    if (state.generalItems.some(item => item[field] === value)) {
+      throw new Error(`La opción "${value}" ya está siendo usada por un producto.`);
+    }
+    return {
+      ...state,
+      [type]: (state[type] || []).filter(entry => entry !== value)
+    };
+  }, `Eliminó la opción ${value} de ${label}`);
+  if (saved) renderCatalogLists();
 }
 
 window.updateGenStatus = function(index, val) {
-  const itemId = window.marketState.generalItems[index]?.id;
+  const item = window.marketState.generalItems[index];
+  const itemId = item?.id;
   if (!itemId) return;
   saveData(state => ({
     ...state,
     generalItems: updateMarketItem(state.generalItems, itemId, { status: val })
-  }));
+  }), `Cambió el estado de ${item.concept} a ${val}`);
 };
 
 window.openAddGeneralModal = function() {
@@ -728,10 +910,8 @@ window.openAddGeneralModal = function() {
   document.getElementById("genModalTitle").textContent = "Agregar Producto General";
   document.getElementById("genProdId").value = "";
   document.getElementById("genConcept").value = "";
-  const areas = [...new Set(window.marketState.generalItems.map(item => item.area.trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "es"));
-  const places = [...new Set(window.marketState.generalItems.map(item => item.place.trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "es"));
+  const areas = uniqueValues(window.marketState.areas || []);
+  const places = uniqueValues(window.marketState.places || []);
   const defaultArea = areas.includes("Aseo Casita") ? "Aseo Casita" : "";
   populateProductSelect(document.getElementById("genArea"), areas, "Selecciona un área", defaultArea, "+ Agregar nueva área...");
   populateProductSelect(document.getElementById("genPlace"), places, "Sin asignar (automático)", "", "+ Agregar nuevo lugar...");
@@ -754,10 +934,8 @@ window.openEditGeneralModal = function(index) {
   document.getElementById("genModalTitle").textContent = "Editar Producto General";
   document.getElementById("genProdId").value = item.id;
   document.getElementById("genConcept").value = item.concept;
-  const areas = [...new Set(window.marketState.generalItems.map(product => product.area.trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "es"));
-  const places = [...new Set(window.marketState.generalItems.map(product => product.place.trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "es"));
+  const areas = uniqueValues(window.marketState.areas || []);
+  const places = uniqueValues(window.marketState.places || []);
   populateProductSelect(document.getElementById("genArea"), areas, "Selecciona un área", item.area, "+ Agregar nueva área...");
   populateProductSelect(document.getElementById("genPlace"), places, "Sin asignar (automático)", item.place || "", "+ Agregar nuevo lugar...");
   document.getElementById("newAreaContainer").hidden = true;
@@ -772,24 +950,37 @@ window.openEditGeneralModal = function(index) {
   new bootstrap.Modal(document.getElementById("genProductModal")).show();
 };
 
-window.saveGeneralProduct = function() {
+window.saveGeneralProduct = async function() {
   const itemId = document.getElementById("genProdId").value;
-  const concept = document.getElementById("genConcept").value;
-  const area = getProductSelectValue("genArea", "genNewArea", "la nueva área");
-  if (area === null) return;
-  if (!area.trim()) {
+  const concept = document.getElementById("genConcept").value.trim();
+  const selectedArea = getProductSelectValue("genArea", "genNewArea", "la nueva área");
+  if (selectedArea === null) return;
+  if (!selectedArea.trim()) {
     Swal.fire({ icon: "warning", title: "Falta el área", text: "Selecciona un área o agrega una nueva." });
     return;
   }
+  const area = canonicalCatalogValue(window.marketState.areas || [], selectedArea.trim());
   const selectedPlace = getProductSelectValue("genPlace", "genNewPlace", "el nuevo lugar de compra");
   if (selectedPlace === null) return;
-  const place = selectedPlace || defaultPlaceForItem(concept);
-  const price = Number(document.getElementById("genPrice").value) || 0;
-  const qty = Number(document.getElementById("genQty").value) || 1;
+  const place = canonicalCatalogValue(
+    window.marketState.places || [],
+    selectedPlace.trim() || defaultPlaceForItem(concept)
+  );
+  const rawQty = document.getElementById("genQty").value.trim();
+  const price = parseNonNegativeNumber(document.getElementById("genPrice").value);
+  const qty = Number(rawQty);
   const status = document.getElementById("genStatus").value;
 
-  if(!concept) {
-    Swal.fire({icon: 'warning', title: 'Atención', text: 'El concepto del producto es obligatorio.'});
+  if (!concept) {
+    Swal.fire({ icon: "warning", title: "Atención", text: "El concepto del producto es obligatorio." });
+    return;
+  }
+  if (price === null || !Number.isInteger(price)) {
+    Swal.fire({ icon: "warning", title: "Precio no válido", text: "Ingresa un precio entero igual o mayor que cero." });
+    return;
+  }
+  if (!rawQty || !Number.isInteger(qty) || qty < 1) {
+    Swal.fire({ icon: "warning", title: "Cantidad no válida", text: "Ingresa una cantidad entera de al menos 1." });
     return;
   }
 
@@ -818,20 +1009,38 @@ window.saveGeneralProduct = function() {
     : existingItem
       ? { ...existingItem }
       : null;
-  saveData(state => ({
-    ...state,
-    generalItems: existingItem
-      ? updateMarketItem(
-        state.generalItems,
-        existingItem.id,
-        Object.fromEntries(
-          ["status", "concept", "area", "place", "price", "qty"]
-            .filter(field => !Object.is(originalItem?.[field], newItem[field]))
-            .map(field => [field, newItem[field]])
-        )
-      )
-      : [...state.generalItems, newItem]
-  }));
+  const saveButton = document.getElementById("saveProductButton");
+  saveButton.disabled = true;
+  const saved = await saveData(state => {
+    const canonicalArea = canonicalCatalogValue(state.areas || [], area);
+    const canonicalPlace = canonicalCatalogValue(state.places || [], place);
+    const product = { ...newItem, area: canonicalArea, place: canonicalPlace };
+    let generalItems;
+    if (existingItem) {
+      const latestItem = state.generalItems.find(item => item.id === existingItem.id);
+      if (!latestItem) throw new Error("El producto ya no existe en la lista compartida.");
+      const changes = {};
+      for (const field of ["status", "concept", "area", "place", "price", "qty"]) {
+        if (Object.is(originalItem[field], product[field])) continue;
+        if (!Object.is(latestItem[field], originalItem[field])
+          && !Object.is(latestItem[field], product[field])) {
+          throw new Error(`El campo "${field}" cambió desde otro dispositivo. Cierra y vuelve a editar el producto.`);
+        }
+        changes[field] = product[field];
+      }
+      generalItems = updateMarketItem(state.generalItems, existingItem.id, changes);
+    } else {
+      generalItems = [...state.generalItems, product];
+    }
+    return {
+      ...state,
+      areas: uniqueValues([...(state.areas || []), canonicalArea]),
+      places: uniqueValues([...(state.places || []), canonicalPlace]),
+      generalItems
+    };
+  }, existingItem ? `Editó el producto ${concept}` : `Agregó el producto ${concept}`);
+  saveButton.disabled = false;
+  if (!saved) return;
   editingProductOriginal = null;
   bootstrap.Modal.getInstance(document.getElementById("genProductModal")).hide();
 };
@@ -839,9 +1048,10 @@ window.saveGeneralProduct = function() {
 window.deleteGeneralItem = function(index) {
   const itemId = window.marketState.generalItems[index]?.id;
   if (!itemId) return;
+  const removedItem = window.marketState.generalItems[index];
   Swal.fire({
     title: '¿Eliminar producto?',
-    text: "Esta acción no se puede deshacer",
+    text: "Puedes deshacer esta eliminación durante los próximos 10 segundos.",
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#d33',
@@ -856,6 +1066,29 @@ window.deleteGeneralItem = function(index) {
           throw new Error("El producto ya fue eliminado desde otro dispositivo.");
         }
         return { ...state, generalItems };
+      }, `Eliminó el producto ${removedItem.concept}`).then(saved => {
+        if (!saved) return;
+        Swal.fire({
+          toast: true,
+          position: "bottom-end",
+          icon: "success",
+          title: "Producto eliminado",
+          showConfirmButton: true,
+          confirmButtonText: "Deshacer",
+          showCancelButton: false,
+          timer: 10000,
+          timerProgressBar: true
+        }).then(result => {
+          if (!result.isConfirmed) return;
+          saveData(state => {
+            if (state.generalItems.some(item => item.id === removedItem.id)) {
+              throw new Error("No se pudo deshacer: ya existe un producto con ese identificador.");
+            }
+            const generalItems = [...state.generalItems];
+            generalItems.splice(Math.min(index, generalItems.length), 0, removedItem);
+            return { ...state, generalItems };
+          }, `Restauró el producto ${removedItem.concept}`);
+        });
       });
     }
   });
@@ -885,12 +1118,12 @@ window.changeGeneralBudget = function() {
   }).then((res) => {
     if (res.isConfirmed && res.value) {
       const budget = Number(res.value);
-      saveData(state => ({ ...state, generalBudget: budget }));
+      saveData(state => ({ ...state, generalBudget: budget }), "Actualizó el presupuesto");
     }
   });
 };
 
-async function saveData(updateState) {
+async function saveData(updateState, action = "Actualizó la lista de mercado") {
   if (!marketReady) {
     Swal.fire({
       icon: "info",
@@ -902,8 +1135,14 @@ async function saveData(updateState) {
 
   setSyncStatus("Guardando...");
   try {
+    const activityEntry = {
+      action,
+      actor: auth.currentUser?.email || "Usuario autorizado",
+      timestamp: new Date().toISOString()
+    };
     await runTransaction(db, async transaction => {
       const snapshot = await transaction.get(sharedMarketRef);
+      const activitySnapshot = await transaction.get(activityHistoryRef);
       if (!snapshot.exists()) {
         throw new Error("La lista compartida ya no existe. No se guardaron los cambios.");
       }
@@ -913,8 +1152,16 @@ async function saveData(updateState) {
       }
       const currentState = normalizeMarketState(storedData).state;
       transaction.set(sharedMarketRef, { data: updateState(currentState) }, { merge: true });
+      const entries = activitySnapshot.exists() && Array.isArray(activitySnapshot.data().entries)
+        ? activitySnapshot.data().entries
+        : [];
+      transaction.set(activityHistoryRef, {
+        entries: [activityEntry, ...entries].slice(0, 50)
+      }, { merge: true });
     });
+    return true;
   } catch (error) {
     reportSyncError(error);
+    return false;
   }
 }

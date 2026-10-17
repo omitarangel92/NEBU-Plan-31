@@ -43,3 +43,11 @@ El frontend requiere autenticación de correo verificado. Firestore y la funció
 ## Reglas
 
 `firestore.rules` concede acceso únicamente a las dos cuentas cuyos UID están permitidos. Cada usuario solo puede leer y guardar su propio documento `users/{uid}`; los documentos compartidos del plan y mercado se sincronizan entre las dos cuentas. El acceso a cualquier otra ruta queda denegado.
+
+## Respaldo y cambios futuros
+
+- Desde cualquiera de las dos pantallas se puede descargar un archivo JSON con el plan, la lista y las marcas personales de la cuenta que lo descarga. Guarden copias periódicas fuera del dispositivo.
+- Restaurar un archivo reemplaza el plan y la lista compartidos; requiere escribir `RESTAURAR`. Las marcas personales solo se restauran cuando el respaldo fue creado por la misma cuenta.
+- El archivo también incluye los últimos 50 cambios registrados. Cada edición compartida de la lista o del plan se guarda junto con su cambio; las metas personales se registran por separado.
+- El plan incluye `schemaVersion`; las migraciones deben transformar los datos guardados mediante transacciones y preservar los cambios manuales. Cambiar `defaultMealPlanData` no actualiza por sí solo un plan que ya existe en Firestore.
+- La lista usa `marketSetupVersion`. Las nuevas migraciones deben incrementar la versión y agregar o transformar datos de forma compatible, sin volver a aplicar la clasificación inicial sobre listas que las personas ya ajustaron.
