@@ -285,6 +285,8 @@ let marketReady = false;
 let editingProductOriginal = null;
 let activeAuthUid = null;
 let stopMarketListener = null;
+let initialAuthStateResolved = false;
+const initialAuthLoadingDelay = new Promise(resolve => setTimeout(resolve, 400));
 
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
@@ -335,13 +337,16 @@ function getProductSelectValue(selectId, newValueId, label) {
 
 setSyncStatus("Conectando con la lista compartida...");
 onAuthStateChanged(auth, user => {
-  handleMarketAuthState(user).catch(error => {
+  const isInitialState = !initialAuthStateResolved;
+  initialAuthStateResolved = true;
+  handleMarketAuthState(user, isInitialState).catch(error => {
     console.error("Error validando el acceso:", error);
     showMarketAuthGate("login", "No se pudo validar el acceso. Intenta iniciar sesión de nuevo.");
   });
 });
 
-async function handleMarketAuthState(user) {
+async function handleMarketAuthState(user, isInitialState = false) {
+  if (isInitialState) await initialAuthLoadingDelay;
   if (activeAuthUid && activeAuthUid !== user?.uid) {
     stopMarketListener?.();
     activeAuthUid = null;
@@ -372,10 +377,15 @@ async function handleMarketAuthState(user) {
     document.getElementById("marketAppSection").hidden = false;
     return;
   }
-  document.getElementById("authGate").hidden = true;
-  document.getElementById("marketAppSection").hidden = false;
   activeAuthUid = user.uid;
-  await initializeSharedMarket();
+  try {
+    await initializeSharedMarket();
+    document.getElementById("authGate").hidden = true;
+    document.getElementById("marketAppSection").hidden = false;
+  } catch (error) {
+    activeAuthUid = null;
+    throw error;
+  }
 }
 
 function showMarketAuthGate(mode, message = "") {

@@ -45,6 +45,8 @@ let preferredDay = null;
 let activeAuthUid = null;
 let stopPlanListener = null;
 let stopCheckboxListener = null;
+let initialAuthStateResolved = false;
+const initialAuthLoadingDelay = new Promise(resolve => setTimeout(resolve, 400));
 
 const sharedPlanRef = doc(db, "sharedData", "mainPlan");
 const activityHistoryRef = doc(db, "sharedData", "activityHistory");
@@ -54,13 +56,16 @@ const PLAN_MIGRATIONS = new Map([
 ]);
 
 onAuthStateChanged(auth, user => {
-  handleAuthState(user).catch(error => {
+  const isInitialState = !initialAuthStateResolved;
+  initialAuthStateResolved = true;
+  handleAuthState(user, isInitialState).catch(error => {
     console.error("Error validando el acceso:", error);
     showAuthGate("login", "No se pudo validar el acceso. Intenta iniciar sesión de nuevo.");
   });
 });
 
-async function handleAuthState(user) {
+async function handleAuthState(user, isInitialState = false) {
+  if (isInitialState) await initialAuthLoadingDelay;
   if (activeAuthUid && activeAuthUid !== user?.uid) {
     stopPlanListener?.();
     stopCheckboxListener?.();
