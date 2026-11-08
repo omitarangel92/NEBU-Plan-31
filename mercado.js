@@ -698,7 +698,6 @@ function renderGeneralTable() {
   const placeFilter = document.getElementById("filterPlace")?.value || "";
 
   const totals = calculateMarketTotals(window.marketState.generalItems, window.marketState.generalBudget);
-  const siTotal = calculateTotalForStatuses(window.marketState.generalItems, ["SI"]);
 
   let visibleCount = 0;
   window.marketState.generalItems.forEach((item, index) => {
@@ -792,8 +791,6 @@ function renderGeneralTable() {
   document.getElementById("genTotal").textContent = `$${totals.purchased.toLocaleString("es-CO")}`;
   document.getElementById("genPending").textContent = `$${totals.pending.toLocaleString("es-CO")}`;
   document.getElementById("genRemaining").textContent = `$${totals.remaining.toLocaleString("es-CO")}`;
-  document.getElementById("siTotal").textContent = `$${siTotal.toLocaleString("es-CO")}`;
-  document.getElementById("siTotalCard").hidden = statusFilter !== "SI";
   renderCatalogLists();
 }
 
@@ -807,14 +804,6 @@ window.toggleMarketProductDetails = function(button) {
   );
   button.innerHTML = `<i class="bi ${expanded ? "bi-three-dots-vertical" : "bi-three-dots"}" aria-hidden="true"></i>`;
 };
-
-function calculateTotalForStatuses(items, statuses) {
-  return items.reduce((total, item) => {
-    return statuses.includes(item.status)
-      ? total + (item.price * item.qty)
-      : total;
-  }, 0);
-}
 
 function updateMarketFilters() {
   const areas = uniqueValues(window.marketState.areas || []);

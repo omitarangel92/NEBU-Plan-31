@@ -149,15 +149,6 @@ async function handleAuthState(user, isInitialState = false) {
         ? Number(data.dailyCalorieGoal)
         : 2000;
       document.getElementById("dailyCalorieGoal").textContent = currentCalorieGoal.toLocaleString("es-CO");
-      const savedDay = Number(data.lastDay);
-      if (Number.isInteger(savedDay) && savedDay >= 1 && savedDay <= 30 && savedDay !== currentDay) {
-        preferredDay = savedDay;
-        if (appInitialized) {
-          currentDay = savedDay;
-          renderDaySelector();
-          loadDay(currentDay);
-        }
-      }
     } else {
       window.checkboxStates = {};
       currentCalorieGoal = 2000;
@@ -3003,15 +2994,35 @@ document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
 });
 
-function initApp() {
-  currentDay = preferredDay || getColombiaDayOfMonth();
-  renderDaySelector();
-  loadDay(currentDay);
+let lastAutoSelectedDay = null;
+
+function scrollActiveDayIntoView() {
   setTimeout(() => {
     const activeBtn = document.querySelector(".btn-day.active");
     if (activeBtn) activeBtn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, 200);
 }
+
+function selectTodayInPlan() {
+  const today = getColombiaDayOfMonth();
+  lastAutoSelectedDay = today;
+  preferredDay = null;
+  currentDay = today;
+  renderDaySelector();
+  loadDay(currentDay);
+  scrollActiveDayIntoView();
+}
+
+function initApp() {
+  // Al cargar la aplicación siempre se muestra el día actual (hora de Colombia).
+  selectTodayInPlan();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !appInitialized) return;
+  // Si la app quedó abierta y cambió la fecha, saltar al nuevo día.
+  if (getColombiaDayOfMonth() !== lastAutoSelectedDay) selectTodayInPlan();
+});
 
 function renderDaySelector() {
   const container = document.getElementById("daySelector");
